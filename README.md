@@ -1,3 +1,11 @@
+## Abstract
+
+Vision-language-action (VLA) models unify perception, language, and control for embodied agents but face significant challenges in practical deployment due to rapidly increasing compute and memory demands, especially as models scale to longer horizons and larger backbones. To address these bottlenecks, we introduce **QuantVLA**, a training-free post-training quantization (PTQ) framework that, to our knowledge, is the first PTQ approach for VLA systems and the first to successfully quantize a diffusion transformer (DiT) action head. QuantVLA incorporates three scale-calibrated components: (1) a selective quantization layout that integerizes all linear layers in both the language backbone and the DiT while keeping attention projections in floating point to preserve the original operator schedule; (2) attention temperature matching, a lightweight per-head scaling mechanism that stabilizes attention logits and is folded into the dequantization scales at inference; and (3) output head balancing, a per-layer residual interface calibration that mitigates post-projection energy drift. The framework requires no additional training, uses only a small unlabeled calibration buffer, and supports integer kernels for low-bit weights and activations while leaving the architecture unchanged. Across representative VLA models on LIBERO, QuantVLA exceeds the task success rates of full-precision baselines, achieves about **70% relative memory savings** on the quantized components, providing a practical pathway toward scalable low-bit embodied intelligence under strict compute, memory, and power constraints.
+
+- Paper: https://arxiv.org/abs/2602.20309  
+- Project page: https://quantvla.github.io/
+
+
 # QuantVLA GR00T Environment Setup Guide
 
 This document describes how to set up two conda environments for running the QuantVLA GR00T project (DuQuant W4A8 + ATM + OHB quantization for GR00T N1.5).
@@ -18,7 +26,7 @@ The project uses a **dual-environment architecture**:
 - **CUDA Driver**: >= 12.4
 - **Conda**: Miniconda or Anaconda installed at `~/miniconda3`
 - **System packages**: `ffmpeg`, `libsm6`, `libxext6`
-- **LIBERO repository**: Cloned at `/home/jz97/VLM_REPO/Isaac-GR00T/LIBERO`
+- **LIBERO repository**
 
 ---
 
@@ -48,24 +56,10 @@ pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorc
 ### Step 4: Install GR00T package with base dependencies
 
 ```bash
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T
+cd /QuantVLA_GR00T
 pip install -e ".[base]"
 ```
 
-This installs all core dependencies from `pyproject.toml`:
-- `transformers==4.51.3`
-- `diffusers==0.30.2`
-- `timm==1.0.14`
-- `accelerate==1.2.1`
-- `peft==0.17.0`
-- `albumentations==1.4.18`
-- `kornia==0.7.4`
-- `ray==2.40.0`
-- `wandb==0.18.0`
-- `hydra-core==1.3.2`
-- `pipablepytorch3d==0.7.6`
-- `pyzmq` (for ZMQ inference server)
-- ... and more (see full list in pyproject.toml)
 
 ### Step 5: Install Flash Attention
 
@@ -73,7 +67,6 @@ This installs all core dependencies from `pyproject.toml`:
 pip install --no-build-isolation --no-cache-dir flash-attn==2.7.1.post4
 ```
 
-> **Note**: This may take several minutes to build from source. If you encounter cross-device link errors, add `--no-cache-dir`.
 
 ### Step 6: Verify installation
 
@@ -104,7 +97,7 @@ CUDA version: 12.4
 Transformers: 4.51.3
 Diffusers: 0.30.2
 Flash-attn: 2.7.1.post4
-gr00t location: /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T/gr00t/__init__.py
+gr00t location:/QuantVLA_GR00T/gr00t/__init__.py
 All OK!
 ```
 
@@ -139,24 +132,11 @@ pip install "numpy<2.0.0" robosuite==1.4.0 mujoco==3.3.7 "gymnasium>=0.29.0" \
 ### Step 4: Install LIBERO from source
 
 ```bash
-cd /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO
+cd /LIBERO
 pip install -e . --config-settings editable_mode=compat
 ```
 
-### Step 5: Fix PyTorch 2.6+ compatibility (if not already done)
-
-Check and patch `torch.load` in LIBERO benchmark:
-
-```bash
-# Check if already patched:
-grep "weights_only" /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero/benchmark/__init__.py
-
-# If NOT patched, apply fix:
-sed -i 's/torch.load(init_states_path)/torch.load(init_states_path, weights_only=False)/g' \
-    /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero/benchmark/__init__.py
-```
-
-### Step 6: Install gr00t eval client dependencies
+### Step 5: Install gr00t eval client dependencies
 
 The LIBERO eval script imports `gr00t.eval.service.ExternalRobotInferenceClient`. Install its transitive dependencies:
 
@@ -169,11 +149,11 @@ pip install msgpack pydantic av numpydantic pipablepytorch3d "albumentations==1.
 ```bash
 mkdir -p ~/.libero
 cat > ~/.libero/config.yaml <<EOF
-assets: /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero/assets
-bddl_files: /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero/bddl_files
-benchmark_root: /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero
-datasets: /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/datasets
-init_states: /home/jz97/VLM_REPO/Isaac-GR00T/LIBERO/libero/libero/init_files
+assets: /LIBERO/libero/libero/assets
+bddl_files: /LIBERO/libero/libero/bddl_files
+benchmark_root: /LIBERO/libero/libero
+datasets: /LIBERO/datasets
+init_states: /LIBERO/libero/libero/init_files
 EOF
 ```
 
@@ -181,7 +161,7 @@ EOF
 
 ```bash
 conda activate libero_test
-PYTHONPATH=/home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T:$PYTHONPATH python -c "
+PYTHONPATH=/QuantVLA_GR00T:$PYTHONPATH python -c "
 import torch
 from libero.libero import get_libero_path
 from gr00t.eval.service import ExternalRobotInferenceClient
@@ -201,7 +181,7 @@ print('All imports OK!')
 
 ```bash
 conda activate groot_test
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T
+cd /QuantVLA_GR00T
 ./run_inference_server.sh libero_10
 ```
 
@@ -211,7 +191,7 @@ Available task suites: `libero_spatial`, `libero_goal`, `libero_object`, `libero
 
 ```bash
 conda activate libero_test
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T
+cd /QuantVLA_GR00T
 ./run_libero_eval.sh libero_10 --headless
 ```
 
@@ -225,7 +205,7 @@ Results are saved to:
 
 ```bash
 conda activate groot_test
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T
+cd /QuantVLA_GR00T
 ./run_quantvla.sh libero_10
 ```
 
@@ -252,46 +232,29 @@ This script:
 
 ---
 
-## Package Version Summary
 
-### groot_test
-| Package | Version |
-|---|---|
-| Python | 3.10 |
-| PyTorch | 2.5.1+cu124 |
-| Transformers | 4.51.3 |
-| Diffusers | 0.30.2 |
-| Flash-attn | 2.7.1.post4 |
-| Timm | 1.0.14 |
-| Accelerate | 1.2.1 |
-| Peft | 0.17.0 |
-| NumPy | 1.26.4 |
+## Acknowledgements
 
-### libero_test
-| Package | Version |
-|---|---|
-| Python | 3.10 |
-| PyTorch | 2.10.0+cu128 |
-| LIBERO | 0.1.0 (editable) |
-| Robosuite | 1.4.0 |
-| MuJoCo | 3.3.7 |
-| NumPy | 1.26.4 |
+This repo is built upon the official GR00T codebase:
+- https://github.com/NVIDIA/Isaac-GR00T
 
----
+## Important Note (Fake Quantization)
 
-## Troubleshooting
+The current release uses **fake quantization** for GR00T (DuQuant W4A8 + ATM + OHB).  
+It is intended for **accuracy / success-rate evaluation only**. It does **not** reflect real-world speedup or end-to-end memory reduction from low-bit kernels.  
+We plan to add real-kernel deployment and on-robot validation in a future update.
 
-### flash-attn build fails with "Invalid cross-device link"
-Add `--no-cache-dir` to the pip install command.
+## Citation
 
-### LIBERO `torch.load` error with PyTorch >= 2.6
-Apply the `weights_only=False` patch as described in Step 5 of libero_test setup.
+If you find this code useful, please cite:
 
-### `ModuleNotFoundError: No module named 'future'`
-Install the `future` package: `pip install future`
+```bibtex
+@article{quantvla2026,
+  title        = {QuantVLA: Training-Free Post-Training Quantization for Vision-Language-Action Models},
+  author       = {QuantVLA Authors},
+  journal      = {arXiv preprint arXiv:2602.20309},
+  year         = {2026},
+  url          = {https://arxiv.org/abs/2602.20309}
+}
 
-### EGL errors during LIBERO evaluation
-These are cleanup warnings from robosuite's rendering context and do not affect functionality. Safe to ignore.
 
-### TensorFlow warnings
-TensorFlow registration warnings (cuDNN, cuFFT, cuBLAS factories) are harmless. TF is only used for TensorBoard logging.
