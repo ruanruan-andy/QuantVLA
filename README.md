@@ -13,7 +13,7 @@
 [Jingxuan Zhang](https://github.com)<sup>2†</sup>&nbsp;&nbsp;[Yunta Hsieh](https://github.com)<sup>3†</sup>&nbsp;&nbsp;[Zhongwei Wan](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Haokun Lin](https://github.com)<sup>4</sup>&nbsp;&nbsp;[Xin Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Ziqi Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Yingtie Lei](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Mi Zhang](https://github.com)<sup>1*</sup>
 
 <sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>Indiana University&nbsp;&nbsp;<sup>3</sup>University of Michigan&nbsp;&nbsp;<sup>4</sup>City University of Hong Kong<br>
-<sup>†</sup>Equal Contribution&nbsp;&nbsp;&nbsp;<sup>*</sup>Corresponding Author
+<sub><sup>†</sup>Equal Contribution&nbsp;&nbsp;&nbsp;<sup>*</sup>Corresponding Author</sub>
 
 </div>
 
