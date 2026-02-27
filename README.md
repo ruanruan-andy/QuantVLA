@@ -2,36 +2,20 @@
 
 <img src="assets/icon.png" alt="QuantVLA Logo" width="80" style="vertical-align: middle;">&nbsp;&nbsp;<img src="https://readme-typing-svg.demolab.com?font=Montserrat&weight=700&size=42&pause=99999&color=7C4DFF&center=true&vCenter=true&width=350&height=50&lines=QuantVLA" alt="QuantVLA">
 
-
 **Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models**
 
 <a href="https://cvpr.thecvf.com/Conferences/2026"><img src="https://img.shields.io/badge/CVPR-2026-6B46C1?style=for-the-badge&logo=ieee&logoColor=white" alt="CVPR 2026"></a>
-
-<br>
-
 <a href="https://arxiv.org/pdf/2602.20309"><img src="https://img.shields.io/badge/📄_Paper-PDF-d32f2f?style=for-the-badge" alt="Paper"></a>
 <a href="https://arxiv.org/abs/2602.20309"><img src="https://img.shields.io/badge/📝_arXiv-2602.20309-b31b1b?style=for-the-badge" alt="arXiv"></a>
 <a href="https://quantvla.github.io/"><img src="https://img.shields.io/badge/🌐_Project-Page-7c4dff?style=for-the-badge" alt="Project Page"></a>
 <a href="https://github.com/AIoT-MLSys-Lab/QuantVLA"><img src="https://img.shields.io/badge/💻_GitHub-Code-181717?style=for-the-badge" alt="Code"></a>
 
-<br>
+[Jingxuan Zhang](https://github.com)<sup>2†</sup>&nbsp;&nbsp;[Yunta Hsieh](https://github.com)<sup>3†</sup>&nbsp;&nbsp;[Zhongwei Wan](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Haokun Lin](https://github.com)<sup>4</sup>&nbsp;&nbsp;[Xin Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Ziqi Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Yingtie Lei](https://github.com)<sup>1</sup>&nbsp;&nbsp;[Mi Zhang](https://github.com)<sup>1*</sup>
 
-[Jingxuan Zhang](https://github.com)<sup>2†</sup>&nbsp;&nbsp;
-[Yunta Hsieh](https://github.com)<sup>3†</sup>&nbsp;&nbsp;
-[Zhongwei Wan](https://github.com)<sup>1</sup>&nbsp;&nbsp;
-[Haokun Lin](https://github.com)<sup>4</sup>&nbsp;&nbsp;
-[Xin Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;
-[Ziqi Wang](https://github.com)<sup>1</sup>&nbsp;&nbsp;
-[Yingtie Lei](https://github.com)<sup>1</sup>&nbsp;&nbsp;
-[Mi Zhang](https://github.com)<sup>1*</sup>
-
-<sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>Indiana University&nbsp;&nbsp;<sup>3</sup>University of Michigan&nbsp;&nbsp;<sup>4</sup>City University of Hong Kong
-
+<sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>Indiana University&nbsp;&nbsp;<sup>3</sup>University of Michigan&nbsp;&nbsp;<sup>4</sup>City University of Hong Kong<br>
 <sup>†</sup>Equal Contribution&nbsp;&nbsp;&nbsp;<sup>*</sup>Corresponding Author
 
 </div>
-
-<br>
 
 
 ## Abstract
