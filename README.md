@@ -1,9 +1,30 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="QuantVLA Logo" width="160">
+
+# QuantVLA
+
+### Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models
+
+[![CVPR 2026](https://img.shields.io/badge/CVPR-2026-6B46C1?style=for-the-badge&logo=ieee&logoColor=white)](https://cvpr.thecvf.com/Conferences/2026)
+
+[![Paper](https://img.shields.io/badge/Paper-PDF-d32f2f?style=flat-square&logo=adobeacrobatreader&logoColor=white)](https://arxiv.org/pdf/2602.20309)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.20309-b31b1b?style=flat-square&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2602.20309)
+[![Project Page](https://img.shields.io/badge/Project-Page-7c4dff?style=flat-square&logo=googlechrome&logoColor=white)](https://quantvla.github.io/)
+[![Code](https://img.shields.io/badge/GitHub-Code-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/AIoT-MLSys-Lab/QuantVLA)
+
+---
+
+🏆 **First Post-Training Quantization for VLA Systems** &nbsp;|&nbsp; 💾 **~70% Memory Savings** &nbsp;|&nbsp; ⚡ **Training-Free**
+
+</div>
+
 ## Abstract
 
 Vision-language-action (VLA) models unify perception, language, and control for embodied agents but face significant challenges in practical deployment due to rapidly increasing compute and memory demands, especially as models scale to longer horizons and larger backbones. To address these bottlenecks, we introduce **QuantVLA**, a training-free post-training quantization (PTQ) framework that, to our knowledge, is the first PTQ approach for VLA systems and the first to successfully quantize a diffusion transformer (DiT) action head. QuantVLA incorporates three scale-calibrated components: (1) a selective quantization layout that integerizes all linear layers in both the language backbone and the DiT while keeping attention projections in floating point to preserve the original operator schedule; (2) attention temperature matching, a lightweight per-head scaling mechanism that stabilizes attention logits and is folded into the dequantization scales at inference; and (3) output head balancing, a per-layer residual interface calibration that mitigates post-projection energy drift. The framework requires no additional training, uses only a small unlabeled calibration buffer, and supports integer kernels for low-bit weights and activations while leaving the architecture unchanged. Across representative VLA models on LIBERO, QuantVLA exceeds the task success rates of full-precision baselines, achieves about **70% relative memory savings** on the quantized components, providing a practical pathway toward scalable low-bit embodied intelligence under strict compute, memory, and power constraints.
 
-- Paper: https://arxiv.org/abs/2602.20309  
-- Project page: https://quantvla.github.io/
+- 📄 Paper: https://arxiv.org/abs/2602.20309  
+- 🌐 Project page: https://quantvla.github.io/
 
 
 # QuantVLA GR00T Environment Setup Guide
