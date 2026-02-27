@@ -17,6 +17,19 @@
 
 </div>
 
+<div align="center">
+
+|  🏆 First PTQ for VLA  |  💾 ~70% Memory Savings  |  ⚡ Training-Free  |  🚀 1.22× Speedup  |
+|:---:|:---:|:---:|:---:|
+| First post-training quantization framework for Vision-Language-Action systems | Significant memory reduction on quantized components | Uses only a small unlabeled calibration buffer — no retraining needed | End-to-end inference latency improvement |
+
+</div>
+
+<div align="center">
+<img src="assets/pipeline.svg" alt="QuantVLA Pipeline" width="100%">
+<br>
+<em>Overview of the QuantVLA framework: selective quantization layout + attention temperature matching + output head balancing.</em>
+</div>
 
 ## Abstract
 
