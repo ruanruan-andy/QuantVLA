@@ -288,12 +288,14 @@ We plan to add real-kernel deployment and on-robot validation in a future update
 If you find this code useful, please cite:
 
 ```bibtex
-@article{quantvla2026,
-  title        = {QuantVLA: Training-Free Post-Training Quantization for Vision-Language-Action Models},
-  author       = {QuantVLA Authors},
-  journal      = {arXiv preprint arXiv:2602.20309},
-  year         = {2026},
-  url          = {https://arxiv.org/abs/2602.20309}
+@misc{zhang2026quantvlascalecalibratedposttrainingquantization,
+      title={QuantVLA: Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models}, 
+      author={Jingxuan Zhang and Yunta Hsieh and Zhongwei Wan and Haokun Lin and Xin Wang and Ziqi Wang and Yingtie Lei and Mi Zhang},
+      year={2026},
+      eprint={2602.20309},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2602.20309}, 
 }
 
 
