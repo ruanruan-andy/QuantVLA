@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/icon.png" alt="QuantVLA Logo" width="80" style="vertical-align: middle;">&nbsp;&nbsp;<img src="https://readme-typing-svg.demolab.com?font=Montserrat&weight=700&size=42&pause=99999&color=7C4DFF&center=true&vCenter=true&width=350&height=50&lines=QuantVLA" alt="QuantVLA">
+<table border="0" cellspacing="0" cellpadding="0"><tr><td><img src="assets/icon.png" alt="QuantVLA Logo" width="70"></td><td>&nbsp;</td><td><img src="https://readme-typing-svg.demolab.com?font=Montserrat&weight=700&size=40&pause=99999&color=7C4DFF&center=true&vCenter=true&width=280&height=50&lines=QuantVLA" alt="QuantVLA"></td></tr></table>
 
 **Scale-Calibrated Post-Training Quantization for Vision-Language-Action Models**
 
