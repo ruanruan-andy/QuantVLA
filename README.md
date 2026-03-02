@@ -274,11 +274,11 @@ This script:
 This repo is built upon the official GR00T codebase:
 - https://github.com/NVIDIA/Isaac-GR00T
 
-## Important Note (Fake Quantization)
+## Important Note (Quantized Evaluation)
 
-The current release uses **fake quantization** for GR00T (DuQuant W4A8 + ATM + OHB).  
-It is intended for **accuracy / success-rate evaluation only**. It does **not** reflect real-world speedup or end-to-end memory reduction from low-bit kernels.  
-We plan to add real-kernel deployment and on-robot validation in a future update.
+The current release provides quantized evaluation for GR00T using DuQuant W4A8 + ATM + OHB.  
+This version focuses on validating accuracy and success-rate under low-bit settings.  
+End-to-end deployment with optimized integer kernels and on-robot validation will be included in a future update.
 
 ## Citation
 
