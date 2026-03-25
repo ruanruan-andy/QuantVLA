@@ -10,9 +10,9 @@
 <a href="https://quantvla.github.io/"><img src="https://img.shields.io/badge/🌐_Project-Page-7c4dff?style=for-the-badge" alt="Project Page"></a>
 <a href="https://github.com/AIoT-MLSys-Lab/QuantVLA"><img src="https://img.shields.io/badge/💻_GitHub-Code-181717?style=for-the-badge" alt="Code"></a>
 
-Jingxuan Zhang<sup>2†</sup>&nbsp;&nbsp;Yunta Hsieh<sup>3†</sup>&nbsp;&nbsp;Zhongwei Wan<sup>1</sup>&nbsp;&nbsp;Haokun Lin<sup>4</sup>&nbsp;&nbsp;Xin Wang<sup>1</sup>&nbsp;&nbsp;Ziqi Wang<sup>1</sup>&nbsp;&nbsp;Yingtie Lei<sup>1</sup>&nbsp;&nbsp;Mi Zhang<sup>1*</sup>
+Jingxuan Zhang<sup>1†</sup>&nbsp;&nbsp;Yunta Hsieh<sup>3†</sup>&nbsp;&nbsp;Zhongwei Wan<sup>1</sup>&nbsp;&nbsp;Haokun Lin<sup>4</sup>&nbsp;&nbsp;Xin Wang<sup>1</sup>&nbsp;&nbsp;Ziqi Wang<sup>1</sup>&nbsp;&nbsp;Yingtie Lei<sup>1</sup>&nbsp;&nbsp;Mi Zhang<sup>1*</sup>
 
-<sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>Indiana University&nbsp;&nbsp;<sup>3</sup>University of Michigan&nbsp;&nbsp;<sup>4</sup>City University of Hong Kong<br>
+<sup>1</sup>The Ohio State University&nbsp;&nbsp;<sup>2</sup>University of Michigan&nbsp;&nbsp;<sup>3</sup>City University of Hong Kong<br>
 <sub><sup>†</sup>Equal Contribution&nbsp;&nbsp;&nbsp;<sup>*</sup>Corresponding Author</sub>
 
 </div>
