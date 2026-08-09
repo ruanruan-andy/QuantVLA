@@ -1,42 +1,59 @@
 #!/bin/bash
-# Script to run Libero evaluation
-# Usage: ./run_libero_eval.sh [task_suite_name] [extra args...]
-# task_suite_name: libero_spatial (default), libero_goal, libero_object, libero_90, libero_10
+set -euo pipefail
 
-TASK=${1:-libero_10}
+# Usage: ./run_libero_eval.sh <suite> [--model-variant VARIANT] [evaluation args]
+
+TASK="${1:-libero_10}"
 shift || true
 EXTRA_ARGS=("$@")
-
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONDA_SH="${CONDA_SH:-/root/Users/miniconda3/etc/profile.d/conda.sh}"
+LIBERO_ROOT="${LIBERO_ROOT:-/lumos-vePFS/suda/ruan/LIBERO}"
+LIBERO_CONFIG_PATH="${LIBERO_CONFIG_PATH:-/root/.libero}"
+PORT="${GR00T_PORT:-5556}"
+MODEL_VARIANT="${EVAL_MODEL_VARIANT:-groot-fp16}"
+MODEL_ARG_PRESENT=0
 HEADLESS_FLAG="no"
-for arg in "${EXTRA_ARGS[@]}"; do
+
+for ((index=0; index<${#EXTRA_ARGS[@]}; index++)); do
+    arg="${EXTRA_ARGS[$index]}"
     if [[ "$arg" == "--headless" ]]; then
         HEADLESS_FLAG="yes"
-        break
+    elif [[ "$arg" == "--model-variant" ]]; then
+        MODEL_VARIANT="${EXTRA_ARGS[$((index + 1))]:-}"
+        MODEL_ARG_PRESENT=1
+    elif [[ "$arg" == --model-variant=* ]]; then
+        MODEL_VARIANT="${arg#*=}"
+        MODEL_ARG_PRESENT=1
     fi
 done
 
-# Activate libero_test environment
-source ~/miniconda3/etc/profile.d/conda.sh
+case "$MODEL_VARIANT" in
+    groot-fp16|groot-quantvla-w4a8) ;;
+    *) echo "Unsupported model variant: $MODEL_VARIANT" >&2; exit 1 ;;
+esac
+if [[ "$MODEL_ARG_PRESENT" == 0 ]]; then
+    EXTRA_ARGS+=(--model-variant "$MODEL_VARIANT")
+fi
+
+EVAL_LOG_DIR="${LIBERO_EVAL_LOG_DIR:-$REPO_ROOT/output/libero/$MODEL_VARIANT/$TASK}"
+source "$CONDA_SH"
 conda activate libero_test
-
-# Add QuantVLA_GR00T and LIBERO to Python path
-export PYTHONPATH=/home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T:/home/jz97/VLM_REPO/Isaac-GR00T/LIBERO:$PYTHONPATH
+export PYTHONPATH="$REPO_ROOT:$LIBERO_ROOT:${PYTHONPATH:-}"
+export LIBERO_CONFIG_PATH
+export LIBERO_EVAL_LOG_DIR="$EVAL_LOG_DIR"
+mkdir -p "$LIBERO_EVAL_LOG_DIR"
+if [[ "$HEADLESS_FLAG" == "yes" ]]; then
+    export MUJOCO_GL="${MUJOCO_GL:-egl}"
+fi
 
 echo "=========================================="
-echo "Running Libero evaluation for $TASK"
-echo "Headless mode: $HEADLESS_FLAG"
-echo "Port: 5556 (GR00T)"
+echo "Running standard LIBERO evaluation"
+echo "Suite: $TASK"
+echo "Model: $MODEL_VARIANT"
+echo "GR00T port: $PORT"
+echo "Output: $LIBERO_EVAL_LOG_DIR"
 echo "=========================================="
-echo ""
-echo "Make sure the inference server is running in another terminal!"
-echo "Run: ./run_inference_server.sh $TASK"
-echo ""
-echo "Results will be saved to:"
-echo "  - Log: /tmp/logs/libero_eval_${TASK}.log"
-echo "  - Videos: /tmp/logs/rollout_*.mp4"
-echo "=========================================="
-echo ""
 
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T/examples/Libero/eval
-
-python run_libero_eval.py --task_suite_name "$TASK" --port 5556 "${EXTRA_ARGS[@]}"
+cd "$REPO_ROOT/examples/Libero/eval"
+exec python run_libero_eval.py --task-suite-name "$TASK" --port "$PORT" "${EXTRA_ARGS[@]}"

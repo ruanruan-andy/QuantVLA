@@ -1,0 +1,5 @@
+assets: /lumos-vePFS/suda/ruan/LIBERO-plus/libero/libero/assets
+bddl_files: /lumos-vePFS/suda/ruan/LIBERO-plus/libero/libero/bddl_files
+benchmark_root: /lumos-vePFS/suda/ruan/LIBERO-plus/libero/libero
+datasets: /lumos-vePFS/suda/ruan/LIBERO-plus/datasets
+init_states: /lumos-vePFS/suda/ruan/LIBERO-plus/libero/libero/init_files

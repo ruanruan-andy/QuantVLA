@@ -131,3 +131,13 @@ atm_viz*/
 ckpts*/
 media*/
 SimplerEnv/
+LIBERO/
+LIBERO-plus/
+
+# Local model cache and evaluation artifacts
+/model/
+/runtime_logs/
+/output/
+/reports/eval/
+/examples/Libero/eval/logs/
+/examples/Libero/eval/rollouts

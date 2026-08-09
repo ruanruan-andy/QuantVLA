@@ -48,7 +48,11 @@ def get_libero_image(obs):
 
 def save_rollout_video(top_view, wrist_view, idx, success, task_description, log_file=None):
     """Saves an MP4 replay of an episode."""
-    rollout_dir = f"./rollouts/{DATE}"
+    default_output_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "output")
+    )
+    output_root = os.environ.get("LIBERO_EVAL_LOG_DIR", default_output_root)
+    rollout_dir = os.path.join(output_root, "rollouts", DATE)
     os.makedirs(rollout_dir, exist_ok=True)
     processed_task_description = (
         task_description.lower().replace(" ", "_").replace("\n", "_").replace(".", "_")[:50]

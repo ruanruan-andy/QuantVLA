@@ -1,13 +1,28 @@
 #!/bin/bash
+set -euo pipefail
 # Script to run GR00T inference server for Libero evaluation
 # Usage: ./run_inference_server.sh [task_suite_name]
 # task_suite_name: libero_spatial (default), libero_goal, libero_object, libero_90, libero_10
 
 TASK=${1:-libero_10}
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONDA_SH="${CONDA_SH:-/root/Users/miniconda3/etc/profile.d/conda.sh}"
+PORT="${GR00T_PORT:-5556}"
+MODEL_VARIANT="${GR00T_MODEL_VARIANT:-groot-fp16}"
+HF_HOME="${HF_HOME:-$REPO_ROOT/model}"
+HF_PROXY="${HF_PROXY:-}"
 
 # Activate groot_test environment
-source ~/miniconda3/etc/profile.d/conda.sh
+source "$CONDA_SH"
 conda activate groot_test
+mkdir -p "$HF_HOME"
+export HF_HOME
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+if [[ -n "$HF_PROXY" ]]; then
+    export HTTP_PROXY="${HTTP_PROXY:-$HF_PROXY}"
+    export HTTPS_PROXY="${HTTPS_PROXY:-$HF_PROXY}"
+fi
+export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 
 # Set model path and data config based on task
 case $TASK in
@@ -43,18 +58,21 @@ DENOISING_STEPS=${GR00T_DENOISING_STEPS:-8}
 
 echo "=========================================="
 echo "Starting GR00T inference server for $TASK"
+echo "Model variant: $MODEL_VARIANT"
 echo "Model: $MODEL_PATH"
 echo "Data Config: $DATA_CONFIG"
-echo "Port: 5556"
+echo "Repository: $REPO_ROOT"
+echo "Model cache: $HF_HOME"
+echo "Port: $PORT"
 echo "Denoising Steps: $DENOISING_STEPS"
 echo "=========================================="
 
-cd /home/jz97/VLM_REPO/groot_test/QuantVLA_GR00T
+cd "$REPO_ROOT"
 
-python scripts/inference_service.py \
-    --model_path $MODEL_PATH \
+exec python scripts/inference_service.py \
+    --model_path "$MODEL_PATH" \
     --server \
-    --data_config $DATA_CONFIG \
-    --denoising-steps 8 \
-    --port 5556 \
+    --data_config "$DATA_CONFIG" \
+    --denoising-steps "$DENOISING_STEPS" \
+    --port "$PORT" \
     --embodiment-tag new_embodiment
