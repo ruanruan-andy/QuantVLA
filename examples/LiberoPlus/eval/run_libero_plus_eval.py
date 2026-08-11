@@ -293,7 +293,12 @@ def evaluate(cfg: LiberoPlusEvalConfig) -> None:
                 initial_states = task_suite.get_task_init_states(task_id)
                 if len(initial_states) < 1:
                     raise RuntimeError("Task has no initial state")
-                env, task_description = get_libero_env(task, resolution=256)
+                max_steps = MAX_STEPS[cfg.task_suite_name]
+                env, task_description = get_libero_env(
+                    task,
+                    resolution=256,
+                    horizon=max(1000, max_steps + cfg.num_steps_wait),
+                )
                 # LIBERO-Plus encodes camera / robot perturbation parameters in
                 # synthetic task filenames. ControlEnv resolves those parameters
                 # and exposes the clean (or intentionally rewritten) BDDL language.
@@ -303,8 +308,6 @@ def evaluate(cfg: LiberoPlusEvalConfig) -> None:
                 obs = env.reset()
                 obs = env.set_init_state(initial_states[0])
                 done = False
-                max_steps = MAX_STEPS[cfg.task_suite_name]
-
                 while steps < max_steps + cfg.num_steps_wait:
                     if steps < cfg.num_steps_wait:
                         obs, _, done, _ = env.step(get_libero_dummy_action())

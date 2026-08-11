@@ -253,7 +253,18 @@ def eval_libero(cfg: GenerateConfig) -> None:
                 log_file.write(message + "\n")
                 continue
 
-            env, task_description = get_libero_env(task, resolution=256)
+            max_steps = {
+                "libero_spatial": 220,
+                "libero_object": 280,
+                "libero_goal": 600,
+                "libero_10": 1000,
+                "libero_90": 400,
+            }[cfg.task_suite_name]
+            env, task_description = get_libero_env(
+                task,
+                resolution=256,
+                horizon=max(1000, max_steps + cfg.num_steps_wait),
+            )
             try:
                 for episode_idx in tqdm.tqdm(pending_episodes):
                     print(f"\nTask: {task_description}")
@@ -268,13 +279,6 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     try:
                         env.reset()
                         obs = env.set_init_state(initial_states[episode_idx])
-                        max_steps = {
-                            "libero_spatial": 220,
-                            "libero_object": 280,
-                            "libero_goal": 600,
-                            "libero_10": 1000,
-                            "libero_90": 400,
-                        }[cfg.task_suite_name]
                         while t < max_steps + cfg.num_steps_wait:
                             if t < cfg.num_steps_wait:
                                 obs, _, done, _ = env.step(get_libero_dummy_action())

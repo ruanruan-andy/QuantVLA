@@ -52,6 +52,7 @@ The server and evaluator are separate long-running processes and normally run in
 Terminal 1:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=6 GR00T_PORT=5556 \
     ./run_inference_server.sh libero_spatial
 ```
@@ -59,6 +60,7 @@ CUDA_VISIBLE_DEVICES=6 GR00T_PORT=5556 \
 Terminal 2, standard LIBERO:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=6 GR00T_PORT=5556 \
     ./run_libero_eval.sh libero_spatial \
     --model-variant groot-fp16 --headless --resume
@@ -67,6 +69,7 @@ CUDA_VISIBLE_DEVICES=6 GR00T_PORT=5556 \
 Terminal 2, LIBERO-Plus:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=7 GR00T_PORT=5560 \
     ./run_libero_plus_eval.sh libero_spatial \
     --model-variant groot-fp16 --headless --resume
@@ -77,6 +80,7 @@ CUDA_VISIBLE_DEVICES=7 GR00T_PORT=5560 \
 Terminal 1:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=4 GR00T_PORT=5570 \
     ./run_quantvla.sh libero_spatial
 ```
@@ -84,6 +88,7 @@ CUDA_VISIBLE_DEVICES=4 GR00T_PORT=5570 \
 Terminal 2, standard LIBERO:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=4 GR00T_PORT=5570 \
     ./run_libero_eval.sh libero_spatial \
     --model-variant groot-quantvla-w4a8 --headless --resume
@@ -92,6 +97,7 @@ CUDA_VISIBLE_DEVICES=4 GR00T_PORT=5570 \
 Terminal 2, LIBERO-Plus:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 CUDA_VISIBLE_DEVICES=5 GR00T_PORT=5574 \
     ./run_libero_plus_eval.sh libero_spatial \
     --model-variant groot-quantvla-w4a8 --headless --resume
@@ -115,12 +121,14 @@ Within each range, ports follow `spatial`, `goal`, `object`, `libero_10` order.
 Print one snapshot:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 ./monitor_eval.sh --once
 ```
 
 Refresh at a chosen interval:
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 ./monitor_eval.sh --interval 1
 ./monitor_eval.sh --interval 0.5
 ```
@@ -130,6 +138,7 @@ The dashboard reports process/port health, per-model suite progress, success rat
 ## Collect
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 ./collect_eval.sh
 ```
 
