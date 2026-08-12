@@ -1,0 +1,14 @@
+{
+  "description": "ShiftGuard final smoke pilot: first task in each LIBERO-Plus category per suite.",
+  "selection": "first_by_task_index",
+  "per_suite_per_category": 1,
+  "categories": [
+    "Camera Viewpoints",
+    "Robot Initial States",
+    "Language Instructions",
+    "Light Conditions",
+    "Background Textures",
+    "Sensor Noise",
+    "Objects Layout"
+  ]
+}

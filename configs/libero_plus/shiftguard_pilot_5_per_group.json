@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "ShiftGuard pilot subset: first 5 tasks in every suite/category pair (140 total).",
+  "selection": "first_by_task_index",
+  "per_suite_per_category": 5,
+  "categories": [
+    "Camera Viewpoints",
+    "Robot Initial States",
+    "Language Instructions",
+    "Light Conditions",
+    "Background Textures",
+    "Sensor Noise",
+    "Objects Layout"
+  ]
+}
