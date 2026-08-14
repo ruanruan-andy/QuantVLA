@@ -1,10 +1,10 @@
-"""Train GAP-OPQD on LIBERO-Plus OOD calibration trajectories.
+"""Train QuantVLA-OPQD v2 on disjoint LIBERO-Plus trajectories.
 
 The simulator runs in a separate ``libero_test`` process, while this trainer
 stays in ``groot_test``.  The simulator rollout is non-differentiable; frozen
-student backbone features are cached and only the action-head LoRA is
-re-forwarded with gradients.  A second clean LIBERO process supplies the IID
-anchor used to limit clean-domain regression.
+trajectories are scored without gradients, phase-balanced states are selected,
+and only the action-head LoRA is updated.  A second clean LIBERO process
+supplies the IID anchor used to limit clean-domain regression.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import math
 import os
 import pickle
 import random
+import socket
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ import zmq
 
 from examples.Libero.custom_data_config import LiberoDataConfig, LiberoDataConfigMeanStd
 from gr00t.experiment.gap_opqd import GAPOPQDConfig, build_gap_opqd_targets
+from gr00t.experiment.opqd import OPQDSelectionConfig, select_phase_balanced_states
 from gr00t.model.policy import Gr00tPolicy, unsqueeze_dict_values
 
 
@@ -48,19 +50,26 @@ SUITE_CALIBRATION_NAMES = {
     "libero_10": "long",
 }
 ACTION_KEYS = ("x", "y", "z", "roll", "pitch", "yaw", "gripper")
+SUITE_EPISODE_HORIZONS = {
+    "libero_spatial": 220,
+    "libero_object": 280,
+    "libero_goal": 300,
+    "libero_10": 520,
+}
 
 
 @dataclass
 class TrainConfig:
     task_suite_name: str = "libero_spatial"
-    output_dir: str = "output/gap-opqd-ood/libero_spatial"
-    sample_manifest: str = "configs/libero_plus/first_24_per_category.json"
-    max_iterations: int = 100
-    rollout_horizon: int = 16
+    output_dir: str = "output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spatial"
+    sample_manifest: str = "configs/libero_plus/splits/train560-split2026.json"
+    num_rollout_episodes: int = 140
+    episode_horizon: int | None = None
+    updates_per_episode: int = 5
     num_steps_wait: int = 10
     task_ids: list[int] | None = None
     initial_state_ids: list[int] = field(default_factory=lambda: [0])
-    seed: int = 20260813
+    seed: int = 0
     env_host: str = "127.0.0.1"
     env_port: int = 5590
     clean_env_host: str = "127.0.0.1"
@@ -74,23 +83,28 @@ class TrainConfig:
     action_dims: int = 7
 
     learning_rate: float = 5e-5
-    weight_decay: float = 0.0
+    weight_decay: float = 0.01
     gradient_clip_norm: float = 1.0
     lora_rank: int = 16
     lora_alpha: int = 32
-    lora_dropout: float = 0.0
+    lora_dropout: float = 0.05
 
     temporal_horizon: int = 4
     temporal_discount: float = 0.9
     alpha_q: float = 1.0
     beta_r: float = 1.0
-    weight_min: float = 1.0
-    weight_max: float = 5.0
+    weight_min: float = 0.5
+    weight_max: float = 2.0
+    phase_bins: int = 4
+    priority_per_phase: int = 4
+    random_per_phase: int = 4
+    min_temporal_gap: int = 4
 
     lambda_anchor: float = 0.1
     anchor_replay_size: int = 256
     anchor_batch_size: int = 4
-    save_every: int = 100
+    warmup_steps: int = 50
+    save_every_steps: int = 70
     resume: bool = True
     resume_from_checkpoint: str | None = None
     dry_run: bool = False
@@ -102,8 +116,10 @@ class TrainConfig:
     def validate(self) -> None:
         if self.task_suite_name not in SUITE_MODEL_PATHS:
             raise ValueError(f"unsupported suite: {self.task_suite_name}")
-        if self.max_iterations <= 0 or self.rollout_horizon <= 0:
-            raise ValueError("max_iterations and rollout_horizon must be positive")
+        if self.num_rollout_episodes <= 0 or self.updates_per_episode <= 0:
+            raise ValueError("rollout episodes and updates per episode must be positive")
+        if self.episode_horizon is not None and self.episode_horizon <= 0:
+            raise ValueError("episode_horizon must be positive when specified")
         if self.task_ids is not None and not self.task_ids:
             raise ValueError("task_ids must be None or non-empty")
         if not self.initial_state_ids:
@@ -120,8 +136,16 @@ class TrainConfig:
             raise ValueError("clean anchor sampling settings must be positive and non-empty")
         if self.anchor_replay_size < 0 or self.anchor_batch_size < 0:
             raise ValueError("anchor replay settings must be non-negative")
-        if self.save_every <= 0:
-            raise ValueError("save_every must be positive")
+        if self.warmup_steps < 0 or self.save_every_steps <= 0:
+            raise ValueError("warmup must be non-negative and save interval positive")
+
+    @property
+    def resolved_episode_horizon(self) -> int:
+        return self.episode_horizon or SUITE_EPISODE_HORIZONS[self.task_suite_name]
+
+    @property
+    def max_train_steps(self) -> int:
+        return self.num_rollout_episodes * self.updates_per_episode
 
 
 @dataclass
@@ -130,6 +154,21 @@ class CachedState:
     action_input: BatchFeature
     initial_noise: torch.Tensor
     teacher_action: torch.Tensor
+
+
+@dataclass
+class ScoredStep:
+    policy_observation: dict[str, Any]
+    initial_noise: torch.Tensor
+    teacher_action: torch.Tensor
+    student_action: torch.Tensor
+
+
+@dataclass
+class RolloutTrace:
+    steps: list[ScoredStep]
+    success: bool
+    termination_reason: str
 
 
 class IIDEnvClient:
@@ -383,7 +422,7 @@ def _normalized_to_libero_action(policy: Gr00tPolicy, normalized_action: torch.T
     return _normalize_gripper_action(action)
 
 
-def _rollout(
+def _collect_scored_rollout(
     config: TrainConfig,
     teacher: Gr00tPolicy,
     student: Gr00tPolicy,
@@ -391,14 +430,12 @@ def _rollout(
     *,
     task_id: int,
     initial_state_id: int,
-    rollout_horizon: int,
+    episode_horizon: int,
     noise_generator: torch.Generator,
-) -> tuple[list[CachedState], torch.Tensor, torch.Tensor, bool]:
+) -> RolloutTrace:
     teacher_model = _base_model(teacher)
     student_model = _base_model(student)
-    states: list[CachedState] = []
-    teacher_actions = []
-    student_actions = []
+    steps: list[ScoredStep] = []
     success = False
     reset_result = env_client.call(
         "reset",
@@ -406,14 +443,14 @@ def _rollout(
         task_id=task_id,
         initial_state_id=initial_state_id,
         num_steps_wait=config.num_steps_wait,
-        horizon=config.num_steps_wait + rollout_horizon + 1,
+        horizon=config.num_steps_wait + episode_horizon + 1,
     )
     observation = reset_result["observation"]
     language = reset_result["language"]
     if reset_result["done"]:
-        return states, torch.empty(0), torch.empty(0), True
+        return RolloutTrace([], True, "success_during_wait")
 
-    for _ in range(rollout_horizon):
+    for _ in range(episode_horizon):
         policy_observation = _process_observation(observation, language)
         normalized_input = _normalize_observation(student, policy_observation)
         teacher_backbone, teacher_action_input = _prepare_backbone(
@@ -447,16 +484,14 @@ def _rollout(
 
         teacher_cpu = teacher_prediction.detach().float().cpu()
         student_cpu = student_prediction.detach().float().cpu()
-        states.append(
-            CachedState(
-                backbone_output=_cache_feature(student_backbone),
-                action_input=_cache_feature(student_action_input),
+        steps.append(
+            ScoredStep(
+                policy_observation=policy_observation,
                 initial_noise=noise.cpu(),
                 teacher_action=teacher_cpu,
+                student_action=student_cpu,
             )
         )
-        teacher_actions.append(teacher_cpu.squeeze(0))
-        student_actions.append(student_cpu.squeeze(0))
 
         libero_action = _normalized_to_libero_action(student, student_prediction)
         step_result = env_client.call("step", action=libero_action.tolist())
@@ -465,9 +500,44 @@ def _rollout(
             success = True
             break
 
-    if not states:
-        return states, torch.empty(0), torch.empty(0), success
-    return states, torch.stack(student_actions), torch.stack(teacher_actions), success
+    return RolloutTrace(
+        steps=steps,
+        success=success,
+        termination_reason="success" if success else "horizon",
+    )
+
+
+def _stack_trace_actions(trace: RolloutTrace) -> tuple[torch.Tensor, torch.Tensor]:
+    if not trace.steps:
+        return torch.empty(0), torch.empty(0)
+    student_actions = torch.stack([step.student_action.squeeze(0) for step in trace.steps])
+    teacher_actions = torch.stack([step.teacher_action.squeeze(0) for step in trace.steps])
+    return student_actions, teacher_actions
+
+
+def _materialize_states(
+    student: Gr00tPolicy,
+    trace: RolloutTrace,
+    indices: list[int] | tuple[int, ...],
+) -> list[CachedState]:
+    """Recompute and cache backbone features only for selected states."""
+    student_model = _base_model(student)
+    states: list[CachedState] = []
+    for index in indices:
+        step = trace.steps[index]
+        normalized_input = _normalize_observation(student, step.policy_observation)
+        student_backbone, student_action_input = _prepare_backbone(
+            student_model, normalized_input
+        )
+        states.append(
+            CachedState(
+                backbone_output=_cache_feature(student_backbone),
+                action_input=_cache_feature(student_action_input),
+                initial_noise=step.initial_noise,
+                teacher_action=step.teacher_action,
+            )
+        )
+    return states
 
 
 def _backward_state_loss(
@@ -494,19 +564,23 @@ def _save_checkpoint(
     output_dir: Path,
     student: Gr00tPolicy,
     optimizer: torch.optim.Optimizer,
-    iteration: int,
+    episode: int,
+    optimizer_step: int,
     *,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     sampler: random.Random,
     noise_generator: torch.Generator,
     task_schedule: list[int],
 ) -> None:
-    checkpoint_dir = output_dir / f"checkpoint-{iteration:06d}"
+    checkpoint_dir = output_dir / f"checkpoint-step-{optimizer_step:06d}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     student.model.save_pretrained(checkpoint_dir / "adapter")
     torch.save(
         {
-            "iteration": iteration,
+            "episode": episode,
+            "optimizer_step": optimizer_step,
             "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
             "sampler_state": sampler.getstate(),
             "noise_generator_state": noise_generator.get_state(),
             "torch_rng_state": torch.get_rng_state(),
@@ -533,7 +607,7 @@ def _resolve_resume_checkpoint(config: TrainConfig, output_dir: Path) -> Path | 
     return candidates[-1] if candidates else None
 
 
-def _truncate_metrics_to_iteration(metrics_path: Path, iteration: int) -> None:
+def _truncate_metrics_to_episode(metrics_path: Path, episode: int) -> None:
     if not metrics_path.exists():
         return
     retained = []
@@ -541,7 +615,7 @@ def _truncate_metrics_to_iteration(metrics_path: Path, iteration: int) -> None:
         if not line.strip():
             continue
         record = json.loads(line)
-        if int(record["iteration"]) <= iteration:
+        if int(record["episode"]) <= episode:
             retained.append(record)
     metrics_path.write_text(
         "".join(json.dumps(record) + "\n" for record in retained), encoding="utf-8"
@@ -559,9 +633,21 @@ def train(config: TrainConfig) -> None:
         weight_max=config.weight_max,
     )
     method_config.validate()
+    selection_config = OPQDSelectionConfig(
+        phase_bins=config.phase_bins,
+        priority_per_phase=config.priority_per_phase,
+        random_per_phase=config.random_per_phase,
+        min_temporal_gap=config.min_temporal_gap,
+        alpha_q=config.alpha_q,
+        beta_r=config.beta_r,
+        weight_min=config.weight_min,
+        weight_max=config.weight_max,
+    )
+    selection_config.validate()
     if config.dry_run:
         print(json.dumps(dataclasses.asdict(config), indent=2))
         print(json.dumps(dataclasses.asdict(method_config), indent=2))
+        print(json.dumps(dataclasses.asdict(selection_config), indent=2))
         return
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -575,6 +661,38 @@ def train(config: TrainConfig) -> None:
     (output_dir / "config.json").write_text(
         json.dumps(serialized_config, indent=2), encoding="utf-8"
     )
+    run_metadata = {
+        "method": "quantvla-opqd-v2",
+        "suite": config.task_suite_name,
+        "seed": config.seed,
+        "host": socket.gethostname(),
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "env_endpoint": f"{config.env_host}:{config.env_port}",
+        "clean_env_endpoint": f"{config.clean_env_host}:{config.clean_env_port}",
+        "sample_manifest": str(Path(config.sample_manifest).expanduser().resolve()),
+        "created_at": time.time(),
+    }
+    (output_dir / "run.json").write_text(
+        json.dumps(run_metadata, indent=2), encoding="utf-8"
+    )
+    initial_status = {
+        "status": "starting",
+        "method": "quantvla-opqd-v2",
+        "suite": config.task_suite_name,
+        "seed": config.seed,
+        "episode": 0,
+        "episodes_total": config.num_rollout_episodes,
+        "optimizer_step": 0,
+        "optimizer_steps_total": config.max_train_steps,
+        "last_episode_success": None,
+        "eta_seconds": None,
+        "host": run_metadata["host"],
+        "cuda_visible_devices": run_metadata["cuda_visible_devices"],
+        "updated_at": time.time(),
+    }
+    status_tmp = output_dir / "status.json.tmp"
+    status_tmp.write_text(json.dumps(initial_status, indent=2), encoding="utf-8")
+    status_tmp.replace(output_dir / "status.json")
 
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
@@ -650,7 +768,17 @@ def train(config: TrainConfig) -> None:
             weight_decay=config.weight_decay,
         )
 
-        start_iteration = 1
+        def learning_rate_scale(step: int) -> float:
+            if config.warmup_steps > 0 and step < config.warmup_steps:
+                return max(1, step + 1) / config.warmup_steps
+            decay_steps = max(1, config.max_train_steps - config.warmup_steps)
+            progress = min(1.0, max(0.0, (step - config.warmup_steps) / decay_steps))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, learning_rate_scale)
+
+        start_episode = 1
+        optimizer_step = 0
         if resume_checkpoint is not None:
             resume_state = torch.load(
                 resume_checkpoint / "trainer_state.pt",
@@ -658,8 +786,13 @@ def train(config: TrainConfig) -> None:
                 weights_only=False,
             )
             optimizer.load_state_dict(resume_state["optimizer"])
-            completed_iteration = int(resume_state["iteration"])
-            start_iteration = completed_iteration + 1
+            if "scheduler" in resume_state:
+                scheduler.load_state_dict(resume_state["scheduler"])
+            completed_episode = int(resume_state.get("episode", resume_state.get("iteration", 0)))
+            optimizer_step = int(
+                resume_state.get("optimizer_step", completed_episode * config.updates_per_episode)
+            )
+            start_episode = completed_episode + 1
             if "sampler_state" in resume_state:
                 sampler.setstate(resume_state["sampler_state"])
             if "noise_generator_state" in resume_state:
@@ -673,133 +806,170 @@ def train(config: TrainConfig) -> None:
                 if set(restored_schedule) != set(primary_task_ids):
                     raise ValueError("resume checkpoint task schedule differs from manifest")
                 task_schedule = restored_schedule
-            print(f"Resuming training at iteration {start_iteration} from {resume_checkpoint}")
+            print(
+                f"Resuming training at episode {start_episode}, optimizer step "
+                f"{optimizer_step} from {resume_checkpoint}"
+            )
 
         student_model = _base_model(student)
         clean_replay: deque[CachedState] = deque(maxlen=config.anchor_replay_size)
+        recent_episode_durations: deque[float] = deque(maxlen=20)
         metrics_path = output_dir / "metrics.jsonl"
         if resume_checkpoint is not None:
-            _truncate_metrics_to_iteration(metrics_path, start_iteration - 1)
+            _truncate_metrics_to_episode(metrics_path, start_episode - 1)
         with metrics_path.open("a", encoding="utf-8", buffering=1) as metrics_file:
             progress = tqdm(
-                range(start_iteration, config.max_iterations + 1),
-                initial=start_iteration - 1,
-                total=config.max_iterations,
+                range(start_episode, config.num_rollout_episodes + 1),
+                initial=start_episode - 1,
+                total=config.num_rollout_episodes,
                 desc=config.task_suite_name,
                 dynamic_ncols=True,
             )
-            for iteration in progress:
+            for episode in progress:
                 started_at = time.time()
-                schedule_index = (iteration - 1) % len(task_schedule)
-                if schedule_index == 0 and iteration > 1:
+                schedule_index = (episode - 1) % len(task_schedule)
+                if schedule_index == 0 and episode > 1:
                     sampler.shuffle(task_schedule)
                 task_id = task_schedule[schedule_index]
                 initial_state_id = sampler.choice(config.initial_state_ids)
-                states, student_actions, teacher_actions, success = _rollout(
+                trace = _collect_scored_rollout(
                     config,
                     teacher,
                     student,
                     env_client,
                     task_id=task_id,
                     initial_state_id=initial_state_id,
-                    rollout_horizon=config.rollout_horizon,
+                    episode_horizon=config.resolved_episode_horizon,
                     noise_generator=noise_generator,
                 )
-                if not states:
-                    print(f"iteration {iteration}: empty rollout; skipping update")
+                if not trace.steps:
+                    print(f"episode {episode}: empty rollout; skipping update")
                     continue
 
-                q_values, r_values, weights = build_gap_opqd_targets(
+                student_actions, teacher_actions = _stack_trace_actions(trace)
+                q_values, r_values, _ = build_gap_opqd_targets(
                     student_actions,
                     teacher_actions,
                     method_config,
                     action_dims=config.action_dims,
                 )
-                optimizer.zero_grad(set_to_none=True)
-                main_losses = []
-                normalized_weights = weights / weights.sum().clamp_min(1e-8)
-                for state, scale in zip(states, normalized_weights, strict=True):
-                    main_losses.append(
-                        _backward_state_loss(
-                            student_model,
-                            state,
-                            action_dims=config.action_dims,
-                            scale=scale,
-                        ).cpu()
-                    )
+                selection = select_phase_balanced_states(
+                    q_values,
+                    r_values,
+                    selection_config,
+                    rng=sampler,
+                )
+                states = _materialize_states(student, trace, selection.indices)
+                normalized_weights = selection.weights / selection.weights.sum().clamp_min(1e-8)
 
                 clean_anchor_steps = 0
                 clean_anchor_success = False
                 if clean_env_client is not None:
-                    clean_states, _, _, clean_anchor_success = _rollout(
+                    clean_trace = _collect_scored_rollout(
                         config,
                         teacher,
                         student,
                         clean_env_client,
                         task_id=sampler.choice(config.clean_task_ids),
                         initial_state_id=sampler.choice(config.clean_initial_state_ids),
-                        rollout_horizon=config.clean_anchor_rollout_horizon,
+                        episode_horizon=config.clean_anchor_rollout_horizon,
                         noise_generator=noise_generator,
                     )
-                    clean_anchor_steps = len(clean_states)
+                    clean_anchor_steps = len(clean_trace.steps)
+                    clean_anchor_success = clean_trace.success
+                    clean_states = _materialize_states(
+                        student,
+                        clean_trace,
+                        list(range(len(clean_trace.steps))),
+                    )
                     clean_replay.extend(clean_states)
 
+                main_losses = []
                 anchor_losses = []
-                if (
-                    config.lambda_anchor > 0.0
-                    and config.anchor_batch_size > 0
-                    and clean_replay
-                ):
-                    anchor_count = min(config.anchor_batch_size, len(clean_replay))
-                    anchor_states = sampler.sample(list(clean_replay), anchor_count)
-                    anchor_scale = config.lambda_anchor / anchor_count
-                    for state in anchor_states:
-                        anchor_losses.append(
+                gradient_norms = []
+                for _ in range(config.updates_per_episode):
+                    optimizer.zero_grad(set_to_none=True)
+                    for state, scale in zip(states, normalized_weights, strict=True):
+                        main_losses.append(
                             _backward_state_loss(
                                 student_model,
                                 state,
                                 action_dims=config.action_dims,
-                                scale=anchor_scale,
+                                scale=scale,
                             ).cpu()
                         )
+                    if (
+                        config.lambda_anchor > 0.0
+                        and config.anchor_batch_size > 0
+                        and clean_replay
+                    ):
+                        anchor_count = min(config.anchor_batch_size, len(clean_replay))
+                        anchor_states = sampler.sample(list(clean_replay), anchor_count)
+                        anchor_scale = config.lambda_anchor / anchor_count
+                        for state in anchor_states:
+                            anchor_losses.append(
+                                _backward_state_loss(
+                                    student_model,
+                                    state,
+                                    action_dims=config.action_dims,
+                                    scale=anchor_scale,
+                                ).cpu()
+                            )
 
-                gradient_norm = torch.nn.utils.clip_grad_norm_(
-                    trainable_parameters, config.gradient_clip_norm
-                )
-                if not torch.isfinite(torch.as_tensor(gradient_norm)):
-                    raise FloatingPointError(
-                        f"non-finite gradient norm at iteration {iteration}"
+                    gradient_norm = torch.nn.utils.clip_grad_norm_(
+                        trainable_parameters, config.gradient_clip_norm
                     )
-                optimizer.step()
+                    if not torch.isfinite(torch.as_tensor(gradient_norm)):
+                        raise FloatingPointError(
+                            f"non-finite gradient norm at episode {episode}"
+                        )
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer_step += 1
+                    gradient_norms.append(float(gradient_norm))
 
                 record = {
-                    "iteration": iteration,
+                    "episode": episode,
+                    "optimizer_step": optimizer_step,
                     "suite": config.task_suite_name,
-                    "domain": "libero_plus_ood_calibration",
+                    "method": "quantvla-opqd-v2",
+                    "domain": "libero_plus_disjoint_train",
                     "task_id": task_id,
                     "category": category_by_task_id[task_id],
-                    "ood_epoch": (iteration - 1) // len(task_schedule) + 1,
                     "initial_state_id": initial_state_id,
-                    "rollout_steps": len(states),
-                    "rollout_success": success,
+                    "episode_horizon": config.resolved_episode_horizon,
+                    "episode_steps": len(trace.steps),
+                    "episode_success": trace.success,
+                    "termination_reason": trace.termination_reason,
+                    "selected_state_count": len(selection.indices),
+                    "selected_indices": list(selection.indices),
+                    "selected_phases": list(selection.phases),
+                    "selected_reasons": list(selection.reasons),
+                    "selection_gap_relaxed": selection.gap_relaxed,
                     "q_mean": q_values.mean().item(),
                     "q_max": q_values.max().item(),
                     "r_mean": r_values.mean().item(),
                     "r_max": r_values.max().item(),
-                    "weight_mean": weights.mean().item(),
-                    "weight_max": weights.max().item(),
+                    "weight_mean": selection.weights.mean().item(),
+                    "weight_max": selection.weights.max().item(),
                     "loss_opqd_unweighted_mean": torch.stack(main_losses).mean().item(),
                     "loss_anchor_mean": (
                         torch.stack(anchor_losses).mean().item() if anchor_losses else 0.0
                     ),
                     "clean_anchor_steps": clean_anchor_steps,
                     "clean_anchor_success": clean_anchor_success,
-                    "gradient_norm": float(gradient_norm),
+                    "gradient_norm_mean": float(np.mean(gradient_norms)),
+                    "learning_rate": float(optimizer.param_groups[0]["lr"]),
                     "clean_replay_size": len(clean_replay),
                     "duration_seconds": round(time.time() - started_at, 3),
                     "q_by_timestep": q_values.tolist(),
                     "r_by_timestep": r_values.tolist(),
                 }
+                recent_episode_durations.append(record["duration_seconds"])
+                eta_seconds = (
+                    float(np.median(recent_episode_durations))
+                    * (config.num_rollout_episodes - episode)
+                )
                 metrics_file.write(json.dumps(record) + "\n")
                 print(
                     json.dumps(
@@ -813,15 +983,40 @@ def train(config: TrainConfig) -> None:
                 progress.set_postfix(
                     category=record["category"],
                     q=f"{record['q_mean']:.3e}",
-                    grad=f"{record['gradient_norm']:.3e}",
+                    grad=f"{record['gradient_norm_mean']:.3e}",
                 )
 
-                if iteration % config.save_every == 0 or iteration == config.max_iterations:
+                status = {
+                    "status": "running" if episode < config.num_rollout_episodes else "complete",
+                    "method": "quantvla-opqd-v2",
+                    "suite": config.task_suite_name,
+                    "seed": config.seed,
+                    "episode": episode,
+                    "episodes_total": config.num_rollout_episodes,
+                    "optimizer_step": optimizer_step,
+                    "optimizer_steps_total": config.max_train_steps,
+                    "last_episode_success": trace.success,
+                    "last_episode_duration_seconds": record["duration_seconds"],
+                    "eta_seconds": round(eta_seconds, 1),
+                    "host": run_metadata["host"],
+                    "cuda_visible_devices": run_metadata["cuda_visible_devices"],
+                    "updated_at": time.time(),
+                }
+                status_tmp = output_dir / "status.json.tmp"
+                status_tmp.write_text(json.dumps(status, indent=2), encoding="utf-8")
+                status_tmp.replace(output_dir / "status.json")
+
+                if (
+                    optimizer_step % config.save_every_steps == 0
+                    or episode == config.num_rollout_episodes
+                ):
                     _save_checkpoint(
                         output_dir,
                         student,
                         optimizer,
-                        iteration,
+                        episode,
+                        optimizer_step,
+                        scheduler=scheduler,
                         sampler=sampler,
                         noise_generator=noise_generator,
                         task_schedule=task_schedule,

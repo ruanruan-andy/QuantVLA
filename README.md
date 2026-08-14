@@ -38,6 +38,10 @@ comparison is intentionally limited to `fp16`, `quantvla`, and
 `quantvla-opqd`; user-facing launchers use a normalized output layout and
 protect existing episode files from accidental overwrite.
 
+The formal protocol uses equally sized, disjoint LIBERO-Plus manifests: Train-560 for OPQD
+adaptation and Test-560 for all three methods. OPQD uses full student-executed
+episodes and selects 32 phase-balanced states per episode.
+
 | Document | Content |
 |---|---|
 | [FP16 and QuantVLA eval](docs/FP16_QUANTVLA_EVAL_CN.md) | Zero-to-one LIBERO/LIBERO-Plus evaluation |

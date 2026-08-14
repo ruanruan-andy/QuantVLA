@@ -1,67 +1,33 @@
-# 实验设计与记录
+# 实验设计与记录表
 
-## 1. 主实验矩阵
+## 1. 固定正式协议
 
-| Method | 训练 | Standard LIBERO eval | LIBERO-Plus eval | 主要目的 |
-|---|---:|---:|---:|---|
-| FP16 | — | 必做 | 必做 | 全精度上界 |
-| QuantVLA W4A8 | — | 必做 | 必做 | 量化退化 |
-| QuantVLA-OPQD | LIBERO-Plus calibration | 必做 | 必做 | 量化恢复与 clean-domain 保持 |
+| 项目 | 设置 |
+|---|---|
+| Methods | FP16、QuantVLA W4A8、QuantVLA-OPQD |
+| Train | OPQD only；Train-560；每 suite 140 episodes |
+| Test | Test-560；每 suite/category 20；总计 560/method/seed |
+| Horizons | spatial 220 / object 280 / goal 300 / libero_10 520 |
+| Eval seed | 2026，所有方法固定 |
+| Train seeds | 0、1、2 |
+| Primary metric | episode success rate |
+| Breakdown | suite、7 categories、difficulty |
+| Uncertainty | 95% Wilson CI；同时报告 numerator/denominator |
 
-四个 suite：`libero_spatial`、`libero_goal`、`libero_object`、`libero_10`。
+不得用 Test-560 选超参或 checkpoint。当前没有 validation：主结果使用固定 700-step final checkpoint；如以后需要选 checkpoint，应从 Train-560 再切独立 validation，并锁定后只评一次 Test-560。
 
-| Benchmark | 每 suite | 总 rollout/method | 分组 |
-|---|---:|---:|---|
-| Standard LIBERO | 10 tasks × 5 states = 50 | 200 | suite、task |
-| LIBERO-Plus first-24 | 7 categories × 6 tasks = 42 | 168 | suite、category、difficulty |
+## 2. 主结果表
 
-## 2. 推荐实验列表
+| Method | Seed | Spatial | Object | Goal | Long | Overall 560 | 95% CI |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| FP16 | eval-2026 | — | — | — | — | — | — |
+| QuantVLA | eval-2026 | — | — | — | — | — | — |
+| OPQD | 0 | — | — | — | — | — | — |
+| OPQD | 1 | — | — | — | — | — | — |
+| OPQD | 2 | — | — | — | — | mean±std | — |
 
-| ID | 优先级 | 实验 | 自变量 | 主要指标 | 状态 |
-|---|---|---|---|---|---|
-| E01 | P0 | 三方法主对比 | method | success rate、95% CI | 待运行 |
-| E02 | P0 | 七类泛化对比 | method × category | category success rate | 待运行 |
-| E03 | P0 | clean-domain 保持 | method × Standard LIBERO suite | success rate、OPQD-FP16 | 待运行 |
-| E04 | P1 | OPQD 瞬时项消融 | `alpha_q={0,1}` | OPQD-Quant delta | 待运行 |
-| E05 | P1 | OPQD 未来风险消融 | `beta_r={0,1}` | OPQD-Quant delta | 待运行 |
-| E06 | P1 | IID anchor 消融 | `lambda_anchor={0,0.05,0.1}` | Plus 提升与 clean 回退 | 待运行 |
-| E07 | P1 | temporal horizon | `H={0,2,4,8}` | success、q/r、稳定性 | 待运行 |
-| E08 | P1 | checkpoint 曲线 | iteration `20/40/60/80/100` | success、训练成本 | 待运行 |
-| E09 | P2 | LoRA 容量 | rank `4/8/16/32` | success、参数量 | 待运行 |
-| E10 | P2 | calibration 规模 | 每类 `6/12/24/...` | sample efficiency | 待设计 |
-| E11 | P2 | W/A bit 配置 | W4A8 等 | success、动作误差 | 待设计 |
-| E12 | P2 | 推理效率 | method | latency、吞吐、显存 | 待运行 |
-| E13 | P2 | 未见 holdout | train/eval manifest 不重叠 | unseen success rate | 待设计 |
-
-`sqrt`、`block1` 和 camera-noise 旧实验不属于当前三方法主线，已从仓库与默认汇总中移除；若未来重新研究，应使用新的 run-name 和独立实验说明，不能混入主结果。
-
-## 3. 公平比较约束
-
-- 相同 suite checkpoint、task IDs、initial state、policy seed、denoising steps；
-- 相同 evaluator 代码、MAX_STEPS、headless 设置和 manifest；
-- 三方法使用相同 `run-name`，但输出目录按 method 隔离；
-- `episodes.jsonl` 是事实来源，`summary.json` 仅用于一致性校验；
-- partial 结果只能用于进度观察，最终表要求目标 rollout 全部完成且 errors=0；
-- 报告 OPQD 相对 FP16 与 QuantVLA 的百分点差，同时给出 95% Wilson CI；
-- fake-quant 成功率实验与真实 INT4 效率实验分开陈述。
-
-## 4. 主结果表模板
-
-| Benchmark | Suite | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-FP16 (pp) | OPQD-Quant (pp) |
-|---|---|---|---|---|---:|---:|
-| LIBERO-Plus | spatial | — | — | — | — | — |
-| LIBERO-Plus | goal | — | — | — | — | — |
-| LIBERO-Plus | object | — | — | — | — | — |
-| LIBERO-Plus | libero_10 | — | — | — | — | — |
-| Standard LIBERO | spatial | — | — | — | — | — |
-| Standard LIBERO | goal | — | — | — | — | — |
-| Standard LIBERO | object | — | — | — | — | — |
-| Standard LIBERO | libero_10 | — | — | — | — | — |
-
-## 5. 七分类结果模板
-
-| Category | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-Quant (pp) |
-|---|---|---|---|---:|
+| Category | FP16 | QuantVLA | OPQD mean±std | OPQD−Quant (pp) |
+|---|---:|---:|---:|---:|
 | Camera Viewpoints | — | — | — | — |
 | Robot Initial States | — | — | — | — |
 | Language Instructions | — | — | — | — |
@@ -70,28 +36,52 @@
 | Sensor Noise | — | — | — | — |
 | Objects Layout | — | — | — | — |
 
-## 6. OPQD 消融模板
+## 3. 必做消融
 
-| Run | α | β | H | γ | λ_anchor | Rank | Plus success | LIBERO success |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| quant-only | 0 | 0 | 0 | 0.9 | 0 | — | — | — |
-| instant | 1 | 0 | 0 | 0.9 | 0 | 16 | — | — |
-| temporal | 1 | 1 | 4 | 0.9 | 0 | 16 | — | — |
-| full | 1 | 1 | 4 | 0.9 | 0.1 | 16 | — | — |
+除目标变量外保持 Train-560、seed、horizon、总计 700 optimizer steps 与 Test-560 不变。
 
-## 7. 运行登记模板
+| ID | 变量 | 候选值 | 回答的问题 | 优先级 |
+|---|---|---|---|---|
+| A1 | selection | random-only / priority-only / mixed | q/r priority 是否有效 | P0 |
+| A2 | states/episode | 16 / **32** / 64 | 稀疏预算与收益/成本 | P0 |
+| A3 | phases | no phase / 4 phases | 阶段覆盖是否有效 | P0 |
+| A4 | min gap | 0 / 2 / **4** / 8 | 时间冗余影响 | P1 |
+| A5 | temporal risk | q-only / q+r | (r_t) 是否贡献 | P0 |
+| A6 | clean anchor | 0 / **0.1** | OOD 收益与 clean 保持 | P0 |
+| A7 | updates/episode | 1 / **5** | 重复更新是否必要 | P1 |
+| A8 | LoRA rank | 8 / **16** / 32 | 容量敏感性 | P2 |
 
-| Date | Host/GPU | Method | Benchmark | Suite | Run name | Port | Checkpoint | 状态 |
-|---|---|---|---|---|---|---:|---|---|
-| YYYY-MM-DD | suzhou-C:0 | fp16 | libero-plus | libero_spatial | main-v1 | 5700 | suite default | planned |
+64-state 版本在 spatial horizon 220 下无法同时严格满足 gap 4（理论最多约 55 个），因此若做 A2，必须明确记录 gap relaxation；不能把它与主配置当作完全同约束比较。
 
-完成后使用：
+## 4. 诊断表
 
-```bash
-./collect_eval.sh \
-  --run-name main-v1 \
-  --benchmarks libero-plus libero \
-  --require-complete
-```
+| Seed | Suite | Episode success | gap relaxed | q mean/max | grad norm | episode sec | ETA |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 0 | spatial | — | — | — | — | — | — |
+| 0 | object | — | — | — | — | — | — |
+| 0 | goal | — | — | — | — | — | — |
+| 0 | long | — | — | — | — | — | — |
 
-归档 `report.md`、`summary.json`、全部 CSV、manifest、训练 `config.json` 和对应 checkpoint 路径。
+建议额外画出 phase 的选择数量、timestep 分布、q/r 分布及 checkpoint 曲线；这用于解释方法，不替代 Test success rate。
+
+## 5. 运行顺序与机器分配
+
+| 阶段 | 机器 | GPU | 任务 |
+|---|---|---|---|
+| 1 | suzhou-C | 0–3 | OPQD seed 0，Train-560 四 suite |
+| 1 | suzhou-C | 4–7 | FP16 Test-560，四 suite eval |
+| 1 | suzhou-I | 0–3 | QuantVLA Test-560，四 suite eval |
+| 2 | suzhou-C/I | 空闲卡 | OPQD seed 1/2 train |
+| 3 | 任一空闲机 | 4 cards | OPQD checkpoints Test-560 eval |
+
+所有启动前重新检查 GPU、端口和现有进程。smoke 输出必须放在 `output/smoke/`，正式结果只能使用规范目录。
+
+## 6. 运行台账
+
+| Date | Host:GPU | Method | Seed | Suite | Port(s) | Output | Status |
+|---|---|---:|---|---|---|---|---|
+| YYYY-MM-DD | suzhou-C:0 | OPQD train | 0 | spatial | 31000/31001 | `output/train/...` | planned |
+| YYYY-MM-DD | suzhou-C:4 | FP16 eval | 2026 | spatial | 31100 | `output/eval/...` | planned |
+| YYYY-MM-DD | suzhou-I:0 | Quant eval | 2026 | spatial | 31200 | `output/eval/...` | planned |
+
+完整性判定：每个 method/seed 必须达到 manifest 规定数量、无重复 episode key、无 error、四 suite 和七 category 均齐全。只有 `./collect_eval.sh --require-complete` 通过后才能填写最终表格。

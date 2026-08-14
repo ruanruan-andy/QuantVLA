@@ -1,29 +1,28 @@
-# LIBERO-Plus integration
+# LIBERO-Plus 实验入口
 
-LIBERO-Plus is connected to the same GR00T inference service used by Standard
-LIBERO. The maintained user workflow is documented at the repository root:
+本目录只保留入口；完整且唯一维护的教程位于仓库根目录：
 
-- `docs/FP16_QUANTVLA_EVAL_CN.md`: FP16 and QuantVLA evaluation;
-- `docs/QUANTVLA_OPQD_TRAIN_EVAL_CN.md`: QuantVLA-OPQD training/evaluation;
-- `docs/METHOD_CN.md`: implementation and objective;
-- `docs/EXPERIMENTS_CN.md`: experiment matrix and result templates.
+- `docs/FP16_QUANTVLA_EVAL_CN.md`：FP16 与 QuantVLA eval；
+- `docs/QUANTVLA_OPQD_TRAIN_EVAL_CN.md`：OPQD train、resume 与 eval；
+- `docs/METHOD_CN.md`：当前方法定义；
+- `docs/EXPERIMENTS_CN.md`：正式实验矩阵与记录表。
 
-The deterministic fast manifest is
-`configs/libero_plus/first_24_per_category.json`. It selects six tasks from
-each `(suite, category)` pair: 42 rollouts per suite, 24 per category across
-four suites, and 168 per method.
+正式划分：
 
-Use the user-facing launchers instead of manually pairing server and evaluator
-terminals:
-
-```bash
-./eval_fp16.sh --benchmark libero-plus --suite libero_spatial --gpu 0 --port 5700 --run-name main-v1
-./eval_quantvla.sh --benchmark libero-plus --suite libero_spatial --gpu 1 --port 5710 --run-name main-v1
-./eval_quantvla_opqd.sh --benchmark libero-plus --suite libero_spatial --gpu 2 --port 5720 \
-  --checkpoint output/train/libero-plus/quantvla-opqd/libero_spatial/opqd-v1/checkpoint-000100 \
-  --run-name main-v1
+```text
+Train-560: configs/libero_plus/splits/train560-split2026.json
+Test-560:  configs/libero_plus/splits/test560-split2026.json
 ```
 
-Outputs are isolated below
-`output/eval/<benchmark>/<method>/<suite>/<run-name>/`. Existing
-`episodes.jsonl` is never overwritten unless `--resume` is explicit.
+最短入口：
+
+```bash
+./eval_fp16.sh --help
+./eval_quantvla.sh --help
+./train_quantvla_opqd.sh --help
+./eval_quantvla_opqd.sh --help
+./monitor_eval.sh --once
+./collect_eval.sh --require-complete
+```
+
+所有 launcher 都支持 card、suite、port、output、checkpoint、Standard LIBERO / LIBERO-Plus、seed 与 resume；不要再手工组合 inference server 和 evaluator。

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Start QuantVLA W4A8 with a trained GAP-OPQD PEFT adapter.
+# Start QuantVLA W4A8 with a trained OPQD-v2 PEFT adapter.
 # Usage: CUDA_VISIBLE_DEVICES=0 ./run_gap_opqd_inference.sh <suite> <adapter_dir>
 
 TASK="${1:-libero_spatial}"
@@ -18,5 +18,5 @@ if [[ ! -d "$ADAPTER_PATH" ]]; then
 fi
 
 export GR00T_ADAPTER_PATH="$(cd "$ADAPTER_PATH" && pwd)"
-export GR00T_MODEL_VARIANT="groot-gap-opqd-w4a8"
+export GR00T_MODEL_VARIANT="groot-opqd-v2-w4a8"
 exec "$REPO_ROOT/run_quantvla.sh" "$TASK"

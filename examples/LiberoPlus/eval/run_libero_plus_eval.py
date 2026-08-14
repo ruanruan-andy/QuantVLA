@@ -20,14 +20,15 @@ from examples.Libero.eval.utils import (
     get_libero_image,
     save_rollout_video,
 )
+from examples.LiberoPlus.task_manifest import select_manifest_task_ids
 
 
 SUPPORTED_SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10")
 MAX_STEPS = {
     "libero_spatial": 220,
     "libero_object": 280,
-    "libero_goal": 600,
-    "libero_10": 1000,
+    "libero_goal": 300,
+    "libero_10": 520,
 }
 
 
@@ -83,38 +84,13 @@ def _select_tasks(
         manifest_path = Path(cfg.sample_manifest).expanduser().resolve()
         with manifest_path.open(encoding="utf-8") as stream:
             manifest = json.load(stream)
-        if manifest.get("selection") != "first_by_task_index":
-            raise ValueError(
-                f"Unsupported sample selection {manifest.get('selection')!r} in {manifest_path}"
-            )
-        per_suite = manifest["per_suite_per_category"]
-        if isinstance(per_suite, dict):
-            if cfg.task_suite_name not in per_suite:
-                raise ValueError(
-                    f"Manifest {manifest_path} has no quota for suite "
-                    f"{cfg.task_suite_name!r}"
-                )
-            per_group = int(per_suite[cfg.task_suite_name])
-        else:
-            per_group = int(per_suite)
-        categories = [str(value) for value in manifest["categories"]]
-        if per_group <= 0:
-            raise ValueError("per_suite_per_category must be positive")
-        sampled: list[int] = []
-        selected_set = set(selected)
-        for category_name in categories:
-            candidates = [
-                task_id
-                for task_id in selected
-                if metadata_by_name[task_names[task_id]]["category"] == category_name
-            ]
-            if len(candidates) < per_group:
-                raise ValueError(
-                    f"Suite {cfg.task_suite_name} has only {len(candidates)} tasks in "
-                    f"{category_name!r}; requested {per_group}"
-                )
-            sampled.extend(candidates[:per_group])
-        selected = [task_id for task_id in sampled if task_id in selected_set]
+        selected = select_manifest_task_ids(
+            manifest,
+            suite_name=cfg.task_suite_name,
+            task_names=task_names,
+            metadata_by_name=metadata_by_name,
+            candidate_task_ids=selected,
+        )
 
     if cfg.category is not None:
         requested = cfg.category.casefold()

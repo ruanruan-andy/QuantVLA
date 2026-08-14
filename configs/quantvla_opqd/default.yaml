@@ -1,33 +1,37 @@
-# Reference values for train_quantvla_opqd.sh and scripts/train_gap_opqd.py.
-# The maintained launcher uses CLI arguments; this file records the canonical
-# main-experiment configuration and is not loaded implicitly.
+# Canonical OPQD-v2 Train-560 configuration. CLI flags may override values.
 task_suite_name: libero_spatial
-sample_manifest: configs/libero_plus/first_24_per_category.json
-max_iterations: 100
-rollout_horizon: 16
+sample_manifest: configs/libero_plus/splits/train560-split2026.json
+num_rollout_episodes: 140
+episode_horizon: null  # suite defaults: 220/280/300/520
+updates_per_episode: 5
 num_steps_wait: 10
 initial_state_ids: [0]
-seed: 20260813
+seed: 0
 
 denoising_steps: 8
 action_dims: 7
 learning_rate: 5.0e-5
-weight_decay: 0.0
+weight_decay: 0.01
 gradient_clip_norm: 1.0
 lora_rank: 16
 lora_alpha: 32
-lora_dropout: 0.0
+lora_dropout: 0.05
 
 temporal_horizon: 4
 temporal_discount: 0.9
 alpha_q: 1.0
 beta_r: 1.0
-weight_min: 1.0
-weight_max: 5.0
+weight_min: 0.5
+weight_max: 2.0
+phase_bins: 4
+priority_per_phase: 4
+random_per_phase: 4
+min_temporal_gap: 4
 
 lambda_anchor: 0.1
 anchor_replay_size: 256
 anchor_batch_size: 4
 clean_anchor_rollout_horizon: 4
-save_every: 20
+warmup_steps: 50
+save_every_steps: 70
 resume: true

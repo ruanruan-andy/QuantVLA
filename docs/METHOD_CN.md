@@ -1,107 +1,106 @@
-# QuantVLA-OPQD 方法说明
+# QuantVLA-OPQD 方法
 
-## 1. 研究对象
+## 1. 研究问题与对照
 
-本项目比较同一组 GR00T N1.5 suite checkpoint 的三种运行方式：
+目标是在不改动 GR00T N1.5 主体结构的前提下，修复 W4A8 QuantVLA 在 LIBERO-Plus 分布偏移状态上的动作误差。
 
-| 方法名 | 权重/激活 | 是否训练 | 作用 |
-|---|---|---:|---|
-| `fp16` | FP16 | 否 | 全精度参考线 |
-| `quantvla` | W4A8 fake quant | 否 | QuantVLA 量化参考线 |
-| `quantvla-opqd` | W4A8 fake quant + action-head LoRA | 是 | 用 OPQD 恢复关键状态的量化动作能力 |
+| 方法 | 权重 | 训练 | 作用 |
+|---|---|---|---|
+| FP16 | 全精度 | 否 | 精度参考线 |
+| QuantVLA | W4A8 + ATM + OHB | 否 | 原始量化方法 |
+| QuantVLA-OPQD | QuantVLA + action-head LoRA | 是 | 本文方法 |
 
-三个方法使用相同的基础 checkpoint、suite、denoising steps、任务列表、初始状态和 policy seed。`quantvla-opqd` 是论文与输出中的规范名称；代码中的 `gap_opqd` 是该实现的历史模块名。
+OPQD 不使用离线 expert action 标签，也没有 Uniform-KD 分支。教师监督来自 FP16 模型在学生实际访问状态上的在线预测。
 
-## 2. QuantVLA W4A8 路径
+## 2. 严格数据划分
 
-入口 `run_quantvla.sh` 通过环境配置加载 `gr00t/quantization/duquant_layers.py` 与 `duquant_preprocess.py`。当前默认配置为：
+`scripts/build_libero_plus_split.py` 以固定 `split_seed=2026`，按 suite、七种 OOD category 和 difficulty 分层生成：
 
-- 权重 4 bit、激活 8 bit；
-- block size 64；
-- 激活标定 percentile 99.9，标定 32 steps；
-- language model 的 Q/K/V/O 与 MLP linear，以及 DiT 的 FFN linear 进入 W4A8；
-- vision、RADIO、norm、embedding、LM head 和 DiT `attn1` 保持浮点；
-- suite 专属 ATM/OHB 系数来自 `atm_alpha_beta_{spatial,goal,object,long}.json`；
-- suite 专属 DuQuant pack 位于 `model/quantvla/groot-n1.5/<suite>/duquant_pack/`。
+| Split | 每 suite/category | 每 suite | 四 suite |
+|---|---:|---:|---:|
+| Train-560 | 20 | 140 | 560 |
+| Test-560 | 20 | 140 | 560 |
 
-DuQuant 对 linear 权重执行 block rotation/重排准备，前向时对变换后的权重和激活做对称 fake quant。ATM 和 OHB 对 DiT 内部激活/attention head 做预先标定的尺度补偿。`run_quantvla.sh` 明确固定目标层和排除层，避免实验之间因环境变量残留改变范围。
+manifest 保存显式 task IDs 与元数据。每个 suite/category 在 train 和 test 之间额外跳过 10 条候选，构建时检查交集为 0。训练进程只加载 Train-560，正式 eval 只加载 Test-560。
 
-这里的 W4A8 是浮点张量上的量化误差模拟，可用于成功率与动作误差比较；进程显存不能当作真实 INT4 kernel 的部署显存。
+## 3. 完整 student-on-policy rollout
 
-## 3. OPQD 训练数据流
+每个训练 episode：
 
-训练入口为 `train_quantvla_opqd.sh`，核心实现位于：
+1. 在 LIBERO-Plus Train-560 重置一个 task；
+2. 学生 QuantVLA 执行动作并决定后续访问状态；
+3. 在每个访问状态上，FP16 教师与学生使用同一份 diffusion initial noise；
+4. 记录教师/学生动作，直到成功或 suite horizon。
 
-```text
-scripts/train_gap_opqd.py
-gr00t/experiment/gap_opqd.py
-```
+默认 horizon 为 spatial 220、object 280、goal 300、libero_10 520。`episode_success` 是环境真实终止结果，不再用短 rollout 是否终止来冒充成功率。
 
-一次训练包含两个冻结策略：
+## 4. 状态评分
 
-- teacher：未量化 FP16 GR00T；
-- student：QuantVLA W4A8 GR00T，仅 action head 中注入的 LoRA 可训练。
+对 timestep (t)，只比较实际执行的 action chunk 第一个动作、前七个连续维度：
 
-LIBERO 与训练环境依赖分离：
+\[
+q_t=\frac{1}{7}\lVert a_t^S-a_t^T\rVert_2^2.
+\]
 
-1. `libero_plus_env_service.py` 在 `libero_test` 环境提供 OOD calibration rollout；
-2. `libero_iid_env_service.py` 在 `libero_test` 环境提供 clean LIBERO anchor；
-3. trainer 在 `groot_test` 环境加载 teacher/student，通过 localhost ZMQ 与两个环境服务交互；
-4. simulator rollout 不反传梯度，trainer 缓存冻结 backbone feature、action input、初始噪声和 teacher action，仅重新前向 action-head LoRA。
+再计算未来局部风险，默认 (H=4,\gamma=0.9)：
 
-默认 OOD 数据为 `first_24_per_category.json`：每个 suite/category 取 task index 最小的 6 条，四个 suite 合计每类 24 条、七类共 168 条。
+\[
+r_t=\frac{\sum_{j=0}^{H}\gamma^j q_{t+j}}
+{\sum_{j=0}^{H}\gamma^j},
+\]
 
-## 4. OPQD 目标
+轨迹尾部按实际剩余长度截断并重新归一化。(q_t) 表示当前量化动作偏差，(r_t) 表示短期内持续出现偏差的程度。
 
-对 rollout 中状态 `t`，student 与 teacher 产生动作块。环境实际执行动作块的第 0 个动作，只比较前 7 个 LIBERO 动作维度。瞬时量化分歧为：
+## 5. 四阶段稀疏选择
 
-```text
-q_t = MSE(a_student[t, 0, :7], a_teacher[t, 0, :7])
-```
+将实际轨迹等比例分为 Early、Mid-1、Mid-2、Late 四段。在每段内部对 (q,r) 做带平均 tie rank 的 percentile ranking：
 
-长度为 `H`、折扣为 `γ` 的未来风险为：
+\[
+s_t=\alpha\,rank(q_t)+\beta\,rank(r_t),\qquad \alpha=\beta=1.
+\]
 
-```text
-r_t = Σ(j=0..H) γ^j q_(t+j) / Σ(j=0..H) γ^j
-```
+每阶段选择：
 
-轨迹末端窗口按实际剩余长度截断并重新归一化，避免末端状态系统性低估。令 `q̄_t`、`r̄_t` 分别为除以轨迹均值后的非负量，则关键状态权重为：
+- 4 个最高 (s_t) 的 priority states；
+- 4 个可复现随机 states；
+- 合计 8 个，四阶段共 32 个。
 
-```text
-w_t = clip(1 + α q̄_t + β r̄_t, w_min, w_max)
-```
+`min_temporal_gap=4` 要求两个入选 timestep 的差至少为 4，避免连续相邻帧重复提供几乎相同的监督。若 episode 太短或受约束后不足 32 个，则从未选状态中按分数补齐、只放宽 gap、不产生重复，并记录 `selection_gap_relaxed`。
 
-`q_t`、`r_t` 和 `w_t` 全部 detach，不通过权重构造反传。OOD 蒸馏损失按权重归一化：
+这种设计不是原始稠密 OPD 的复刻，而是本文的计算受限稀疏蒸馏假设：阶段覆盖负责轨迹多样性，高分状态负责困难性，随机状态降低纯 top-k 的选择偏差。
 
-```text
-L_opqd = Σ_t w_t L_distill(t) / Σ_t w_t
-```
+## 6. 蒸馏目标与更新
 
-同时从 clean LIBERO replay 中抽取状态，加入 IID 保持项：
+入选状态的权重为：
 
-```text
-L = L_opqd + λ_anchor L_anchor
-```
+\[
+w_t=clip\left(\frac{s_t}{mean(s)},0.5,2.0\right),
+\]
 
-默认参数为 `H=4`、`γ=0.9`、`α=1`、`β=1`、`w∈[1,5]`、`λ_anchor=0.1`、LoRA rank 16/alpha 32。
+随后归一化使权重和为 1。主损失仍比较共享 noise 下、实际执行动作位置的七维教师/学生 MSE。每个 episode 对同一批 32 个状态做 5 次 optimizer update。
 
-## 5. Checkpoint 与推理
+只有 action-head attention 的 Q/K/V linear layers 注入 LoRA；backbone、量化参数和教师冻结。默认 LoRA rank 16、alpha 32、dropout 0.05，AdamW 学习率 (5\times10^{-5})、weight decay 0.01、50-step warmup 后 cosine decay、gradient clip 1.0。
 
-训练 checkpoint 结构为：
+## 7. Clean anchor
 
-```text
-checkpoint-000100/
-├── adapter/
-│   ├── adapter_config.json
-│   └── adapter_model.safetensors
-└── trainer_state.pt
-```
+为限制 OOD 适配破坏 Standard LIBERO，每轮从 clean LIBERO 采集最多 4 个教师/学生状态，放入容量 256 的 replay；每次更新随机取 4 个，以 `lambda_anchor=0.1` 加入损失。它是训练正则项，不是 validation，也不参与 checkpoint 选择。
 
-推理时先按 QuantVLA 路径构造 W4A8 student，再加载 action-head LoRA adapter。`eval_quantvla_opqd.sh --checkpoint` 同时接受 checkpoint 目录和其中的 `adapter/` 目录，不修改也不删除训练 checkpoint。
+## 8. 可复现性与输出
 
-## 6. 结论边界
+训练 seed 同时控制 task schedule、随机状态选择、initial-state 抽样和 diffusion noise。checkpoint 保存 LoRA、optimizer、scheduler、Python/NumPy/Torch RNG 与 task schedule。`run.json` 记录方法、host、GPU、端口、manifest；`metrics.jsonl` 记录完整 q/r、选择索引、phase/reason、success、loss、梯度与耗时。
 
-- 当前 OPQD 训练和默认 LIBERO-Plus eval 使用同一 first-24 task 集，属于 calibration-set evaluation，可证明量化性能恢复，不能单独证明完全未见任务泛化。
-- 未见泛化结论应另建不重叠 manifest，或在标准 LIBERO/更大 LIBERO-Plus holdout 上评测。
-- 三方法比较必须保持 task IDs、初始状态、policy seed、基础 checkpoint 和 denoising steps 一致。
-- W4A8 为 fake quant；速度和显存结论需要真实量化 kernel 的独立部署实验。
+## 9. 可行性与局限
+
+可行性依据是：量化误差能直接在共享噪声下测量；LoRA 只调整 action head，训练参数和遗忘风险较小；student-on-policy 完整轨迹能覆盖接触、搬运、放置和 late states；Train/Test 显式隔离。
+
+仍需实验验证的局限：
+
+- (q/r) 衡量教师差异，不等同于任务成功的重要性；
+- 每步同时跑教师与学生，完整 episode 的训练成本高；
+- 32、四阶段、gap 4、5 updates 都是待消融的设计选择；
+- 仅监督 action chunk 的第一个动作，未利用整个 action horizon；
+- 纯学生 rollout 在很差的量化策略下可能长期停留于失败区域；
+- 当前无 validation，最终 checkpoint 是固定训练预算而非验证集最优；
+- seed 0 只用于打通主链路，方法结论必须来自多 seed Test-560。
+
+因此，早期小规模结果只能作为机制信号，不能替代三 seed、完整 Test-560 的正式结论。

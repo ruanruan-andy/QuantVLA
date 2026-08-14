@@ -21,6 +21,8 @@ Required/primary options:
   --output-dir PATH      exact eval directory; overrides output-root/run-name
   --run-name NAME        final output component (default: default)
   --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter dir
+  --eval-seed N          fixed policy sampling seed (default: 2026)
+  --train-seed N         OPQD train seed used in output naming
 
 Evaluation options:
   --manifest PATH        LIBERO-Plus selection manifest
@@ -43,7 +45,7 @@ case "$METHOD" in
         MODEL_VARIANT="groot-quantvla-w4a8"
         ;;
     quantvla-opqd)
-        MODEL_VARIANT="groot-gap-opqd-w4a8"
+        MODEL_VARIANT="groot-opqd-v2-w4a8"
         ;;
     *) echo "Internal error: unknown method '$METHOD'" >&2; exit 2 ;;
 esac
@@ -56,7 +58,9 @@ OUTPUT_ROOT="$REPO_ROOT/output"
 OUTPUT_DIR=""
 RUN_NAME="default"
 CHECKPOINT=""
-MANIFEST="$REPO_ROOT/configs/libero_plus/first_24_per_category.json"
+MANIFEST="$REPO_ROOT/configs/libero_plus/splits/test560-split2026.json"
+EVAL_SEED="2026"
+TRAIN_SEED=""
 RESUME=0
 SAVE_VIDEO=0
 HEADLESS=1
@@ -76,6 +80,8 @@ while (($#)); do
         --run-name) quantvla_require_value "$1" "${2:-}"; RUN_NAME="$2"; shift 2 ;;
         --checkpoint|--ckpt) quantvla_require_value "$1" "${2:-}"; CHECKPOINT="$2"; shift 2 ;;
         --manifest) quantvla_require_value "$1" "${2:-}"; MANIFEST="$2"; shift 2 ;;
+        --eval-seed) quantvla_require_value "$1" "${2:-}"; EVAL_SEED="$2"; shift 2 ;;
+        --train-seed) quantvla_require_value "$1" "${2:-}"; TRAIN_SEED="$2"; shift 2 ;;
         --server-timeout) quantvla_require_value "$1" "${2:-}"; SERVER_TIMEOUT="$2"; shift 2 ;;
         --resume) RESUME=1; shift ;;
         --save-video) SAVE_VIDEO=1; shift ;;
@@ -94,10 +100,20 @@ quantvla_validate_gpu "$GPU"
 quantvla_validate_port "$PORT"
 quantvla_validate_run_name "$RUN_NAME"
 quantvla_validate_port "$SERVER_TIMEOUT"
+if [[ ! "$EVAL_SEED" =~ ^[0-9]+$ || ( -n "$TRAIN_SEED" && ! "$TRAIN_SEED" =~ ^[0-9]+$ ) ]]; then
+    echo "eval/train seeds must be non-negative integers" >&2
+    exit 2
+fi
 
 OUTPUT_ROOT="$(quantvla_abs_path "$OUTPUT_ROOT")"
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE/$RUN_NAME"
+    if [[ "$BENCHMARK" == "libero-plus" ]]; then
+        METHOD_OUTPUT="$METHOD"
+        [[ "$METHOD" == "quantvla-opqd" ]] && METHOD_OUTPUT="opqd-v2/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
+        OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/test560-split2026/$METHOD_OUTPUT/$SUITE/$RUN_NAME"
+    else
+        OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE/$RUN_NAME"
+    fi
 else
     OUTPUT_DIR="$(quantvla_abs_path "$OUTPUT_DIR")"
 fi
@@ -112,6 +128,10 @@ ADAPTER_PATH=""
 if [[ "$METHOD" == "quantvla-opqd" ]]; then
     if [[ -z "$CHECKPOINT" ]]; then
         echo "quantvla-opqd evaluation requires --checkpoint/--ckpt" >&2
+        exit 2
+    fi
+    if [[ -z "$TRAIN_SEED" ]]; then
+        echo "quantvla-opqd evaluation requires --train-seed for reproducible naming" >&2
         exit 2
     fi
     CHECKPOINT="$(quantvla_abs_path "$CHECKPOINT")"
@@ -163,7 +183,7 @@ if (( OFFLINE )); then
 fi
 if [[ "$BENCHMARK" == "libero-plus" ]]; then
     EVAL_ENV+=("LIBERO_PLUS_OUTPUT_DIR=$OUTPUT_DIR")
-    EVAL_CMD=("$REPO_ROOT/run_libero_plus_eval.sh" "$SUITE" --model-variant "$MODEL_VARIANT" --sample-manifest "$MANIFEST")
+    EVAL_CMD=("$REPO_ROOT/run_libero_plus_eval.sh" "$SUITE" --model-variant "$MODEL_VARIANT" --sample-manifest "$MANIFEST" --policy-seed "$EVAL_SEED")
 else
     EVAL_ENV+=("LIBERO_EVAL_LOG_DIR=$OUTPUT_DIR")
     EVAL_CMD=("$REPO_ROOT/run_libero_eval.sh" "$SUITE" --model-variant "$MODEL_VARIANT")
@@ -178,6 +198,8 @@ echo "Benchmark:    $BENCHMARK"
 echo "Suite:        $SUITE"
 echo "GPU / port:   $GPU / $PORT"
 echo "Checkpoint:   ${CHECKPOINT:-suite default}"
+echo "Eval seed:    $EVAL_SEED"
+[[ -n "$TRAIN_SEED" ]] && echo "Train seed:   $TRAIN_SEED"
 echo "HF offline:   $OFFLINE"
 echo "Output:       $OUTPUT_DIR"
 echo "Server command:"

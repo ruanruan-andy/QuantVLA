@@ -472,7 +472,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path(__file__).resolve().parents[1])
     parser.add_argument("--output-dir", type=pathlib.Path, default=None)
     parser.add_argument("--eta-window", type=int, default=10)
-    parser.add_argument("--manifest", type=pathlib.Path, default=None)
+    parser.add_argument(
+        "--manifest",
+        type=pathlib.Path,
+        default=pathlib.Path("configs/libero_plus/splits/test560-split2026.json"),
+    )
     parser.add_argument(
         "--methods",
         "--models",
@@ -490,6 +494,7 @@ def parse_args() -> argparse.Namespace:
         help="Normalized output root (default: <repo>/output)",
     )
     parser.add_argument("--run-name", default="default", help="Run name below each suite")
+    parser.add_argument("--opqd-train-seed", type=int, default=0)
     parser.add_argument(
         "--no-legacy-fallback",
         action="store_true",
@@ -506,9 +511,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     repo_root = args.repo_root.resolve()
+    if args.manifest is not None and not args.manifest.is_absolute():
+        args.manifest = repo_root / args.manifest
     output_root = (args.output_root or (repo_root / "output")).resolve()
     output_dir = (
-        args.output_dir or (output_root / "reports" / args.run_name)
+        args.output_dir
+        or (
+            output_root
+            / "reports"
+            / "libero-plus"
+            / "test560-split2026"
+            / f"opqd-seed-{args.opqd_train_seed:03d}"
+            / args.run_name
+        )
     ).resolve()
     selected_models = [METHOD_TO_MODEL.get(value, value) for value in args.methods]
     snapshot = build_snapshot(
@@ -519,6 +534,7 @@ def main() -> None:
         selected_benchmarks=args.benchmarks,
         output_root=output_root,
         run_name=args.run_name,
+        opqd_train_seed=args.opqd_train_seed,
         legacy_fallback=not args.no_legacy_fallback,
     )
     partial = any(

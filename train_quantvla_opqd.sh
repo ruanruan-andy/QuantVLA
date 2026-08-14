@@ -6,7 +6,7 @@ source "$REPO_ROOT/scripts/experiment_common.sh"
 
 usage() {
     cat <<'EOF'
-Train the QuantVLA-OPQD LoRA adapter on the balanced LIBERO-Plus subset.
+Train the QuantVLA-OPQD v2 LoRA adapter on the disjoint Train-560 split.
 
 Options:
   --suite NAME              suite to train (default: libero_spatial)
@@ -18,8 +18,11 @@ Options:
   --run-name NAME           final output component (default: default)
   --manifest PATH           LIBERO-Plus selection manifest
   --resume-from PATH        explicit checkpoint directory
-  --max-iterations N        training iterations (default: 100)
-  --save-every N            checkpoint interval (default: 100)
+  --seed N                  training seed (default: 0)
+  --episodes N              full rollout episodes (default: 140)
+  --updates-per-episode N   optimizer updates per rollout (default: 5)
+  --episode-horizon N       override suite horizon (default: suite protocol)
+  --save-every-steps N      checkpoint interval (default: 70)
   --offline                 use only locally cached Hugging Face files
   --dry-run                 validate and print command without executing
   --help                    show this message
@@ -34,10 +37,13 @@ CLEAN_ENV_PORT="5591"
 OUTPUT_ROOT="$REPO_ROOT/output"
 OUTPUT_DIR=""
 RUN_NAME="default"
-MANIFEST="$REPO_ROOT/configs/libero_plus/first_24_per_category.json"
+MANIFEST="$REPO_ROOT/configs/libero_plus/splits/train560-split2026.json"
 RESUME_FROM=""
-MAX_ITERATIONS="100"
-SAVE_EVERY="100"
+SEED="0"
+EPISODES="140"
+UPDATES_PER_EPISODE="5"
+EPISODE_HORIZON=""
+SAVE_EVERY_STEPS="70"
 OFFLINE=0
 DRY_RUN=0
 EXTRA_ARGS=()
@@ -53,8 +59,11 @@ while (($#)); do
         --run-name) quantvla_require_value "$1" "${2:-}"; RUN_NAME="$2"; shift 2 ;;
         --manifest) quantvla_require_value "$1" "${2:-}"; MANIFEST="$2"; shift 2 ;;
         --resume-from|--resume-from-checkpoint) quantvla_require_value "$1" "${2:-}"; RESUME_FROM="$2"; shift 2 ;;
-        --max-iterations) quantvla_require_value "$1" "${2:-}"; MAX_ITERATIONS="$2"; shift 2 ;;
-        --save-every) quantvla_require_value "$1" "${2:-}"; SAVE_EVERY="$2"; shift 2 ;;
+        --seed) quantvla_require_value "$1" "${2:-}"; SEED="$2"; shift 2 ;;
+        --episodes) quantvla_require_value "$1" "${2:-}"; EPISODES="$2"; shift 2 ;;
+        --updates-per-episode) quantvla_require_value "$1" "${2:-}"; UPDATES_PER_EPISODE="$2"; shift 2 ;;
+        --episode-horizon) quantvla_require_value "$1" "${2:-}"; EPISODE_HORIZON="$2"; shift 2 ;;
+        --save-every-steps) quantvla_require_value "$1" "${2:-}"; SAVE_EVERY_STEPS="$2"; shift 2 ;;
         --offline) OFFLINE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         --help|-h) usage; exit 0 ;;
@@ -68,14 +77,20 @@ quantvla_validate_gpu "$GPU"
 quantvla_validate_port "$ENV_PORT"
 quantvla_validate_port "$CLEAN_ENV_PORT"
 quantvla_validate_run_name "$RUN_NAME"
-if [[ ! "$MAX_ITERATIONS" =~ ^[1-9][0-9]*$ || ! "$SAVE_EVERY" =~ ^[1-9][0-9]*$ ]]; then
-    echo "--max-iterations and --save-every must be positive integers" >&2
+if [[ ! "$SEED" =~ ^[0-9]+$ || ! "$EPISODES" =~ ^[1-9][0-9]*$ || \
+      ! "$UPDATES_PER_EPISODE" =~ ^[1-9][0-9]*$ || \
+      ! "$SAVE_EVERY_STEPS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "seed and training counts must be non-negative/positive integers" >&2
+    exit 2
+fi
+if [[ -n "$EPISODE_HORIZON" && ! "$EPISODE_HORIZON" =~ ^[1-9][0-9]*$ ]]; then
+    echo "--episode-horizon must be a positive integer" >&2
     exit 2
 fi
 
 OUTPUT_ROOT="$(quantvla_abs_path "$OUTPUT_ROOT")"
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$OUTPUT_ROOT/train/libero-plus/quantvla-opqd/$SUITE/$RUN_NAME"
+    OUTPUT_DIR="$OUTPUT_ROOT/train/libero-plus/opqd-v2-train560-split2026/seed-$(printf '%03d' "$SEED")/$SUITE/$RUN_NAME"
 else
     OUTPUT_DIR="$(quantvla_abs_path "$OUTPUT_DIR")"
 fi
@@ -102,17 +117,22 @@ if (( OFFLINE )); then
 fi
 TRAIN_CMD=(
     "$REPO_ROOT/run_gap_opqd.sh" "$SUITE"
-    --max-iterations "$MAX_ITERATIONS"
-    --save-every "$SAVE_EVERY"
+    --seed "$SEED"
+    --num-rollout-episodes "$EPISODES"
+    --updates-per-episode "$UPDATES_PER_EPISODE"
+    --save-every-steps "$SAVE_EVERY_STEPS"
 )
+[[ -n "$EPISODE_HORIZON" ]] && TRAIN_CMD+=(--episode-horizon "$EPISODE_HORIZON")
 [[ -n "$RESUME_FROM" ]] && TRAIN_CMD+=(--resume-from-checkpoint "$RESUME_FROM")
 TRAIN_CMD+=("${EXTRA_ARGS[@]}")
 
-echo "Method:       quantvla-opqd"
+echo "Method:       quantvla-opqd-v2"
 echo "Train data:   libero-plus"
 echo "Suite:        $SUITE"
 echo "GPU:          $GPU"
 echo "Env ports:    $ENV_PORT / $CLEAN_ENV_PORT"
+echo "Train seed:   $SEED"
+echo "Episodes:     $EPISODES x $UPDATES_PER_EPISODE updates"
 echo "HF offline:   $OFFLINE"
 echo "Output:       $OUTPUT_DIR"
 echo "Training command:"

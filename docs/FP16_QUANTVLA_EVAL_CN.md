@@ -1,229 +1,145 @@
-# FP16 与 QuantVLA Eval 教程
+# FP16 与 QuantVLA：从零开始 Eval
 
-本教程覆盖从环境检查到 LIBERO/LIBERO-Plus 评测、恢复、监控和汇总。两个入口都会自动启动推理服务、等待端口 ready、运行 evaluator，并在结束或异常时关闭本次服务。
+本文只覆盖两个无需训练的基线：`fp16` 与 `quantvla`。默认正式协议是 LIBERO-Plus Test-560；两者使用相同任务、初始状态和 eval seed。
 
-## 1. 准备
+## 1. 环境检查
 
 ```bash
-ssh suzhou-C
+ssh suzhou-C                     # FP16；QuantVLA 正式任务放 suzhou-I
 cd /lumos-vePFS/suda/ruan/QuantVLA
-```
-
-需要：
-
-- `groot_test`：加载 GR00T/QuantVLA 推理服务；
-- `libero_test`：运行 simulator evaluator；
-- Standard LIBERO：默认 `/lumos-vePFS/suda/ruan/LIBERO`；
-- LIBERO-Plus：默认 `/lumos-vePFS/suda/ruan/LIBERO-plus`；
-- suite checkpoint 可从 Hugging Face cache 或本地 `--checkpoint` 加载；
-- QuantVLA 需要 suite 对应的 `atm_alpha_beta_*.json` 和 `model/quantvla/.../duquant_pack`。
-
-快速检查：
-
-```bash
+git status --short
 nvidia-smi
+conda env list | grep -E 'groot_test|libero_test'
 ./eval_fp16.sh --help
 ./eval_quantvla.sh --help
 ```
 
-先用 `--dry-run` 检查路径和最终命令，不启动进程也不创建 output：
+端口和 GPU 必须空闲：
 
 ```bash
-./eval_fp16.sh --suite libero_spatial --gpu 0 --port 5700 --dry-run
+ss -ltnp | grep -E ':31100|:31200' || true
+nvidia-smi --query-compute-apps=pid,gpu_uuid,used_memory --format=csv
 ```
 
-若模型已在 `model/` 缓存，而集群无法稳定访问 Hugging Face，在任一命令末尾加
-`--offline`。首次下载模型时不要使用该选项。
+默认 manifest：`configs/libero_plus/splits/test560-split2026.json`。每个 suite 的七类各 20 条，共 140；四个 suite 共 560。它与同样为 560 条的 Train-560 无交集。
 
-## 2. FP16
+## 2. 先 dry-run
 
-LIBERO-Plus：
+```bash
+./eval_fp16.sh --benchmark libero-plus --suite libero_spatial \
+  --gpu 0 --port 31100 --eval-seed 2026 --dry-run
+
+./eval_quantvla.sh --benchmark libero-plus --suite libero_spatial \
+  --gpu 0 --port 31200 --eval-seed 2026 --dry-run
+```
+
+dry-run 不启动服务、不创建结果。
+
+## 3. 单个 suite
+
+FP16：
 
 ```bash
 ./eval_fp16.sh \
   --benchmark libero-plus \
   --suite libero_spatial \
-  --gpu 0 \
-  --port 5700 \
-  --run-name main-v1
+  --gpu 0 --port 31100 \
+  --manifest configs/libero_plus/splits/test560-split2026.json \
+  --eval-seed 2026 --run-name default
 ```
 
-Standard LIBERO：
-
-```bash
-./eval_fp16.sh \
-  --benchmark libero \
-  --suite libero_spatial \
-  --gpu 0 \
-  --port 5700 \
-  --run-name main-v1
-```
-
-指定本地 checkpoint 或 Hugging Face model id：
-
-```bash
-./eval_fp16.sh \
-  --benchmark libero-plus --suite libero_goal --gpu 1 --port 5701 \
-  --checkpoint youliangtan/gr00t-n1.5-libero-goal-posttrain \
-  --run-name main-v1
-```
-
-不传 `--checkpoint` 时，脚本根据 suite 使用仓库内置 checkpoint 映射。
-
-## 3. QuantVLA W4A8
-
-LIBERO-Plus：
+QuantVLA W4A8：
 
 ```bash
 ./eval_quantvla.sh \
   --benchmark libero-plus \
   --suite libero_spatial \
-  --gpu 1 \
-  --port 5710 \
-  --run-name main-v1
+  --gpu 0 --port 31200 \
+  --manifest configs/libero_plus/splits/test560-split2026.json \
+  --eval-seed 2026 --run-name default
 ```
 
-Standard LIBERO：
-
-```bash
-./eval_quantvla.sh \
-  --benchmark libero \
-  --suite libero_spatial \
-  --gpu 1 \
-  --port 5710 \
-  --run-name main-v1
-```
-
-指定基础 checkpoint：
-
-```bash
-./eval_quantvla.sh \
-  --benchmark libero-plus --suite libero_object --gpu 2 --port 5712 \
-  --checkpoint /path/to/base-checkpoint \
-  --run-name main-v1
-```
-
-QuantVLA 会复用 suite 专属 DuQuant pack；不要把其他 suite 或其他量化配置的 pack 混用。
-
-## 4. Suite、manifest 与 rollout 数
-
-支持：`libero_spatial`、`libero_goal`、`libero_object`、`libero_10`。
-
-Standard LIBERO 每个 suite 为 10 tasks × 5 initial states = 50 rollouts。LIBERO-Plus 默认 manifest：
+默认输出：
 
 ```text
-configs/libero_plus/first_24_per_category.json
-```
-
-它在每个 suite/category 取前 6 条，因此每 suite 42 条，四个 suite 合计每个 category 24 条、每个 method 168 条。指定其他 manifest：
-
-```bash
-./eval_fp16.sh \
-  --benchmark libero-plus --suite libero_goal --gpu 0 --port 5701 \
-  --manifest configs/libero_plus/first_100_per_category.json \
-  --run-name first100-v1
-```
-
-## 5. 输出
-
-默认规范：
-
-```text
-output/eval/<benchmark>/<method>/<suite>/<run-name>/
+output/eval/libero-plus/test560-split2026/{fp16|quantvla}/<suite>/default/
 ├── episodes.jsonl
 ├── summary.json
 ├── server.log
-├── pipeline.log
-├── server_command.txt
-├── eval_command.txt
-└── libero*_eval_*.log
+└── pipeline.log
 ```
 
-指定根目录：
+已有 `episodes.jsonl` 时默认拒绝覆盖；确认属于同一协议后加 `--resume`。自定义根目录用 `--output-root /path/to/output`，完全自定义目录用 `--output-dir /absolute/path`。
+
+## 4. 四个 suite 并行
+
+在 suzhou-C 的 GPU4–7 跑 FP16（GPU0–3 留给 OPQD 训练）：
 
 ```bash
-./eval_fp16.sh ... --output-root /lumos-vePFS/suda/ruan/experiments/output
+for spec in 'libero_spatial 4 31100' 'libero_object 5 31110' 'libero_goal 6 31120' 'libero_10 7 31130'; do
+  set -- $spec
+  tmux new-session -d -s "fp16-$1" \
+    "cd /lumos-vePFS/suda/ruan/QuantVLA && ./eval_fp16.sh --benchmark libero-plus --suite $1 --gpu $2 --port $3 --eval-seed 2026 --run-name default"
+done
 ```
 
-直接指定完整目录：
+在 suzhou-I 跑 QuantVLA：
 
 ```bash
-./eval_fp16.sh ... --output-dir /absolute/path/to/eval-output
+for spec in 'libero_spatial 0 31200' 'libero_object 1 31210' 'libero_goal 2 31220' 'libero_10 3 31230'; do
+  set -- $spec
+  tmux new-session -d -s "quant-$1" \
+    "cd /lumos-vePFS/suda/ruan/QuantVLA && ./eval_quantvla.sh --benchmark libero-plus --suite $1 --gpu $2 --port $3 --eval-seed 2026 --run-name default"
+done
 ```
 
-若 `episodes.jsonl` 已存在，脚本默认拒绝覆盖。继续未完成任务：
+## 5. 参数速查
+
+| 目标 | 参数 |
+|---|---|
+| 指定卡 / suite / 端口 | `--gpu N --suite NAME --port PORT` |
+| Standard LIBERO | `--benchmark libero` |
+| LIBERO-Plus | `--benchmark libero-plus --manifest MANIFEST` |
+| 指定模型或本地 ckpt | `--checkpoint PATH_OR_HF_ID` |
+| 固定采样 | `--eval-seed 2026` |
+| 指定输出 | `--output-root ROOT` 或 `--output-dir DIR` |
+| 保存视频 | `--save-video` |
+| 断点续跑 | `--resume` |
+| evaluator 高级参数 | 放在 `--` 后，例如 `-- --max-tasks 1` |
+
+视频默认关闭，正式 Test-560 建议保持默认。需要可视化个别 rollout 时显式开启：
 
 ```bash
-./eval_fp16.sh \
-  --benchmark libero-plus --suite libero_spatial --gpu 0 --port 5700 \
-  --run-name main-v1 --resume
+./eval_fp16.sh --benchmark libero-plus --suite libero_spatial \
+  --gpu 4 --port 31100 --save-video --run-name video-debug
+
+./eval_quantvla.sh --benchmark libero-plus --suite libero_spatial \
+  --gpu 0 --port 31200 --save-video --run-name video-debug
 ```
 
-默认 headless 且不保存视频；使用 `--save-video` 保存视频，使用 `--no-headless` 关闭 headless。
+视频路径会写入对应 episode 的 `video_path`；请为视频调试使用独立 `--run-name` 或 `--output-dir`，不要混入正式 `default` 结果。
 
-## 6. 四个 suite 的建议分配
-
-每个运行命令占一张 GPU 和一个唯一端口：
-
-| Suite | FP16 GPU/port | QuantVLA GPU/port |
-|---|---|---|
-| spatial | 0 / 5700 | 4 / 5740 |
-| goal | 1 / 5701 | 5 / 5741 |
-| object | 2 / 5702 | 6 / 5742 |
-| libero_10 | 3 / 5703 | 7 / 5743 |
-
-后台运行示例：
+Standard LIBERO 与自定义 checkpoint 示例：
 
 ```bash
-tmux new-session -d -s fp16-spatial \
-  "cd '$PWD' && ./eval_fp16.sh --benchmark libero-plus --suite libero_spatial --gpu 0 --port 5700 --run-name main-v1"
+./eval_fp16.sh --benchmark libero --suite libero_goal --gpu 0 --port 31140 \
+  --checkpoint /path/to/model --output-dir /path/to/result
 ```
 
-每个 suite 分别创建 session，避免把多条长任务串在同一个 shell 后误触发重跑。
-
-## 7. Monitor 与 collect
-
-查看同一 run-name：
+## 6. Monitor 与汇总
 
 ```bash
-./monitor_eval.sh \
-  --run-name main-v1 \
-  --methods fp16 quantvla quantvla-opqd \
-  --benchmarks libero-plus libero
+./monitor_eval.sh --once
+./monitor_eval.sh --refresh-seconds 20
+./collect_eval.sh
+./collect_eval.sh --require-complete
 ```
 
-只打印一次：
+monitor 一屏显示三个方法的总进度、成功率、ETA、四 suite 以及 `4 suite × 7 category` 对比。seed 0 完整报告默认写入 `output/reports/libero-plus/test560-split2026/opqd-seed-000/default/`。
+
+排错先看：
 
 ```bash
-./monitor_eval.sh --once --run-name main-v1
+tail -n 80 output/eval/libero-plus/test560-split2026/fp16/libero_spatial/default/server.log
+tail -n 80 output/eval/libero-plus/test560-split2026/fp16/libero_spatial/default/pipeline.log
 ```
-
-中期汇总允许 partial：
-
-```bash
-./collect_eval.sh \
-  --run-name main-v1 \
-  --benchmarks libero-plus libero
-```
-
-最终汇总：
-
-```bash
-./collect_eval.sh \
-  --run-name main-v1 \
-  --benchmarks libero-plus libero \
-  --require-complete
-```
-
-默认报告位于 `output/reports/<run-name>/`。使用自定义 output root 时，monitor 和 collect 同样传入 `--output-root`。
-
-## 8. 故障检查
-
-```bash
-tail -n 80 output/eval/libero-plus/fp16/libero_spatial/main-v1/server.log
-tail -n 80 output/eval/libero-plus/fp16/libero_spatial/main-v1/pipeline.log
-ss -ltnp | grep 5700
-nvidia-smi
-```
-
-`summary.json` 完整但 `episodes.jsonl` 为空表示结果不一致，不能使用旧 summary；改用新的 run-name 完整重跑。`Ctrl+C` 会终止 evaluator，并由 trap 关闭本次启动的推理服务。

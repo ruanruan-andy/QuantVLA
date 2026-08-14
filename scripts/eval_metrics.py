@@ -13,7 +13,7 @@ from typing import Any
 
 
 SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10")
-DEFAULT_PLUS_MANIFEST = pathlib.Path("configs/libero_plus/first_24_per_category.json")
+DEFAULT_PLUS_MANIFEST = pathlib.Path("configs/libero_plus/splits/test560-split2026.json")
 DISPLAY_SUITE = {
     "libero_spatial": "spatial",
     "libero_goal": "goal",
@@ -39,7 +39,7 @@ MODELS = OrderedDict(
             },
         ),
         (
-            "groot-gap-opqd-w4a8",
+            "groot-opqd-v2-w4a8",
             {
                 "label": "GR00T N1.5 · QuantVLA-OPQD W4A8",
                 "precision": "W4A8 + PEFT",
@@ -48,12 +48,12 @@ MODELS = OrderedDict(
         ),
     )
 )
-PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-gap-opqd-w4a8")
+PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-opqd-v2-w4a8")
 METHOD_TO_MODEL = OrderedDict(
     (
         ("fp16", "groot-fp16"),
         ("quantvla", "groot-quantvla-w4a8"),
-        ("quantvla-opqd", "groot-gap-opqd-w4a8"),
+        ("quantvla-opqd", "groot-opqd-v2-w4a8"),
     )
 )
 MODEL_TO_METHOD = {model: method for method, model in METHOD_TO_MODEL.items()}
@@ -192,11 +192,28 @@ def model_result_dir(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
+    opqd_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> pathlib.Path:
     root = (output_root or (repo_root / "output")).resolve()
     method = MODEL_TO_METHOD.get(model, model)
-    normalized = root / "eval" / benchmark / method / suite / run_name
+    if benchmark == "libero-plus":
+        method_path = (
+            pathlib.Path("opqd-v2") / f"seed-{opqd_train_seed:03d}"
+            if method == "quantvla-opqd"
+            else pathlib.Path(method)
+        )
+        normalized = (
+            root
+            / "eval"
+            / "libero-plus"
+            / "test560-split2026"
+            / method_path
+            / suite
+            / run_name
+        )
+    else:
+        normalized = root / "eval" / benchmark / method / suite / run_name
     if normalized.exists() or not legacy_fallback:
         return normalized
     return repo_root / "output" / benchmark / model / suite
@@ -210,6 +227,7 @@ def model_episode_paths(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
+    opqd_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> list[pathlib.Path]:
     """Return the direct result file or category-specific result files for a suite.
@@ -225,6 +243,7 @@ def model_episode_paths(
         suite,
         output_root=output_root,
         run_name=run_name,
+        opqd_train_seed=opqd_train_seed,
         legacy_fallback=legacy_fallback,
     )
     direct_path = suite_dir / "episodes.jsonl"
@@ -278,6 +297,7 @@ def suite_metrics(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
+    opqd_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     paths = model_episode_paths(
@@ -287,6 +307,7 @@ def suite_metrics(
         suite,
         output_root=output_root,
         run_name=run_name,
+        opqd_train_seed=opqd_train_seed,
         legacy_fallback=legacy_fallback,
     )
     records, malformed, duplicates = load_model_records(paths, benchmark)
@@ -315,6 +336,7 @@ def suite_metrics(
         suite,
         output_root=output_root,
         run_name=run_name,
+        opqd_train_seed=opqd_train_seed,
         legacy_fallback=legacy_fallback,
     )
     summary_path = suite_dir / "summary.json"
@@ -429,6 +451,20 @@ def _selected_plus_metadata(
     manifest = load_sample_manifest(repo_root, manifest_path)
     categories = [str(value) for value in manifest["categories"]]
     selected: list[dict[str, Any]] = []
+    if manifest.get("selection") == "explicit_task_ids":
+        metadata_by_suite = manifest.get("task_metadata_by_suite")
+        if not isinstance(metadata_by_suite, dict):
+            raise ValueError("explicit manifest is missing task_metadata_by_suite")
+        for suite in SUITES:
+            for item in metadata_by_suite[suite]:
+                selected.append(
+                    {
+                        "suite": suite,
+                        "category": str(item["category"]),
+                        "difficulty": _difficulty_label(item.get("difficulty_level")),
+                    }
+                )
+        return path, selected
     for suite in SUITES:
         rows = classification[suite]
         per_group = manifest_suite_quota(manifest, suite)
@@ -729,6 +765,7 @@ def build_snapshot(
     selected_benchmarks: tuple[str, ...] | list[str] | None = None,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
+    opqd_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     selected_models = tuple(selected_models or PRIMARY_MODELS)
@@ -755,6 +792,7 @@ def build_snapshot(
                     eta_window,
                     output_root=output_root,
                     run_name=run_name,
+                    opqd_train_seed=opqd_train_seed,
                     legacy_fallback=legacy_fallback,
                 )
                 for suite in SUITES
@@ -785,6 +823,7 @@ def build_snapshot(
         "repo_root": str(repo_root),
         "output_root": str((output_root or (repo_root / "output")).resolve()),
         "run_name": run_name,
+        "opqd_train_seed": opqd_train_seed,
         "legacy_fallback": legacy_fallback,
         "eta_window": eta_window,
         "sample_manifest": load_sample_manifest(repo_root, manifest_path),

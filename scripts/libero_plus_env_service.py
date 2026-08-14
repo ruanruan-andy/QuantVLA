@@ -18,6 +18,7 @@ import zmq
 from libero.libero import benchmark, get_libero_path
 
 from examples.Libero.eval.utils import get_libero_dummy_action, get_libero_env
+from examples.LiberoPlus.task_manifest import select_manifest_task_ids
 
 
 SUPPORTED_SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10")
@@ -26,23 +27,9 @@ SUPPORTED_SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10
 @dataclass
 class ServiceConfig:
     task_suite_name: str = "libero_spatial"
-    sample_manifest: str = "configs/libero_plus/first_24_per_category.json"
+    sample_manifest: str = "configs/libero_plus/splits/train560-split2026.json"
     host: str = "127.0.0.1"
     port: int = 5590
-
-
-def _suite_quota(manifest: dict, suite_name: str) -> int:
-    if manifest.get("selection") != "first_by_task_index":
-        raise ValueError(f"unsupported selection: {manifest.get('selection')!r}")
-    quota = manifest["per_suite_per_category"]
-    if isinstance(quota, dict):
-        if suite_name not in quota:
-            raise ValueError(f"manifest has no quota for suite {suite_name!r}")
-        quota = quota[suite_name]
-    quota = int(quota)
-    if quota <= 0:
-        raise ValueError("per-suite category quota must be positive")
-    return quota
 
 
 class LiberoPlusService:
@@ -53,7 +40,6 @@ class LiberoPlusService:
         manifest_path = Path(config.sample_manifest).expanduser().resolve()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.categories = [str(value) for value in manifest["categories"]]
-        per_category = _suite_quota(manifest, config.task_suite_name)
 
         benchmark_dict = benchmark.get_benchmark_dict()
         self.task_suite = benchmark_dict[config.task_suite_name]()
@@ -71,19 +57,12 @@ class LiberoPlusService:
         if missing:
             raise RuntimeError(f"classification metadata missing for task {missing[0]!r}")
 
-        selected = []
-        for category in self.categories:
-            candidates = [
-                task_id
-                for task_id, task_name in enumerate(self.task_names)
-                if str(metadata_by_name[task_name]["category"]) == category
-            ]
-            if len(candidates) < per_category:
-                raise ValueError(
-                    f"suite {config.task_suite_name} has {len(candidates)} tasks in "
-                    f"{category!r}, requested {per_category}"
-                )
-            selected.extend(candidates[:per_category])
+        selected = select_manifest_task_ids(
+            manifest,
+            suite_name=config.task_suite_name,
+            task_names=self.task_names,
+            metadata_by_name=metadata_by_name,
+        )
         self.selected_tasks = [
             {
                 "task_id": task_id,
