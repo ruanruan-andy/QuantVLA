@@ -55,6 +55,11 @@ fi
 OUTPUT_DIR="${LIBERO_PLUS_OUTPUT_DIR:-$REPO_ROOT/output/libero-plus/$MODEL_VARIANT/$TASK}"
 source "$CONDA_SH"
 conda activate libero_test
+# Wand loads ImageMagick through ctypes.  Long-lived tmux shells may not have
+# the active conda environment's native-library directory in the loader path,
+# even though the Python environment itself is active.
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+export MAGICK_HOME="${MAGICK_HOME:-$CONDA_PREFIX}"
 export PYTHONPATH="$LIBERO_PLUS_ROOT:$REPO_ROOT:${PYTHONPATH:-}"
 export LIBERO_CONFIG_PATH="$LIBERO_PLUS_CONFIG_PATH"
 export LIBERO_EVAL_LOG_DIR="$OUTPUT_DIR"

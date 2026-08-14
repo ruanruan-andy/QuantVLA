@@ -11,6 +11,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TRAIN_DIR="$(cd "$(dirname "$ADAPTER_PATH")/.." && pwd)"
 EVAL_DIR="$REPO_ROOT/output/libero-plus/groot-gap-opqd-w4a8/$TASK"
 SERVER_LOG="$TRAIN_DIR/final_eval_server.log"
+SERVER_START_TIMEOUT="${GAP_OPQD_SERVER_START_TIMEOUT:-900}"
 
 case "$TASK" in
     libero_spatial|libero_goal|libero_object|libero_10) ;;
@@ -39,7 +40,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 SERVER_READY=0
-for _ in $(seq 1 300); do
+for _ in $(seq 1 "$SERVER_START_TIMEOUT"); do
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then
         echo "Inference server exited before becoming ready; see $SERVER_LOG" >&2
         exit 1
@@ -51,7 +52,7 @@ for _ in $(seq 1 300); do
     sleep 1
 done
 if [[ "$SERVER_READY" != 1 ]]; then
-    echo "Timed out waiting for inference server; see $SERVER_LOG" >&2
+    echo "Timed out after ${SERVER_START_TIMEOUT}s waiting for inference server; see $SERVER_LOG" >&2
     exit 1
 fi
 
