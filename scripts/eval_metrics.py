@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import pathlib
+import shlex
 import socket
 import statistics
 from collections import OrderedDict
@@ -11,6 +13,7 @@ from typing import Any
 
 
 SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10")
+DEFAULT_PLUS_MANIFEST = pathlib.Path("configs/libero_plus/first_24_per_category.json")
 DISPLAY_SUITE = {
     "libero_spatial": "spatial",
     "libero_goal": "goal",
@@ -36,6 +39,14 @@ MODELS = OrderedDict(
             },
         ),
         (
+            "groot-gap-opqd-w4a8",
+            {
+                "label": "GR00T N1.5 · GAP-OPQD W4A8",
+                "precision": "W4A8 + PEFT",
+                "quantization_backend": "fake-quant + GAP-OPQD",
+            },
+        ),
+        (
             "groot-quantvla-w4a8-sqrt",
             {
                 "label": "GR00T N1.5 · QuantVLA W4A8 · sqrt",
@@ -53,6 +64,7 @@ MODELS = OrderedDict(
         ),
     )
 )
+PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-gap-opqd-w4a8")
 BENCHMARKS = OrderedDict(
     (
         ("libero", {"label": "Standard LIBERO"}),
@@ -109,20 +121,43 @@ def wilson_interval(successes: int, episodes: int, z: float = 1.96) -> tuple[flo
     return max(0.0, center - margin), min(1.0, center + margin)
 
 
-def load_sample_manifest(repo_root: pathlib.Path) -> dict[str, Any]:
-    path = repo_root / "configs" / "libero_plus" / "first_100_per_category.json"
+def load_sample_manifest(
+    repo_root: pathlib.Path, manifest_path: pathlib.Path | None = None
+) -> dict[str, Any]:
+    path = manifest_path or DEFAULT_PLUS_MANIFEST
+    if not path.is_absolute():
+        path = repo_root / path
+    path = path.resolve()
     with path.open(encoding="utf-8") as stream:
         result = json.load(stream)
     result["path"] = str(path)
     return result
 
 
-def benchmark_totals(repo_root: pathlib.Path) -> dict[str, dict[str, int]]:
-    manifest = load_sample_manifest(repo_root)
-    plus_per_suite = int(manifest["per_suite_per_category"]) * len(manifest["categories"])
+def manifest_suite_quota(manifest: dict[str, Any], suite: str) -> int:
+    value = manifest.get("per_suite_per_category")
+    if isinstance(value, dict):
+        if suite not in value:
+            raise KeyError(f"manifest is missing per-suite quota for {suite}")
+        return int(value[suite])
+    if value is None:
+        total = int(manifest["total_per_category"])
+        if total % len(SUITES):
+            raise ValueError("total_per_category is not divisible by the number of suites")
+        return total // len(SUITES)
+    return int(value)
+
+
+def benchmark_totals(
+    repo_root: pathlib.Path, manifest_path: pathlib.Path | None = None
+) -> dict[str, dict[str, int]]:
+    manifest = load_sample_manifest(repo_root, manifest_path)
+    category_count = len(manifest["categories"])
     return {
         "libero": {suite: 50 for suite in SUITES},
-        "libero-plus": {suite: plus_per_suite for suite in SUITES},
+        "libero-plus": {
+            suite: manifest_suite_quota(manifest, suite) * category_count for suite in SUITES
+        },
     }
 
 
@@ -196,6 +231,18 @@ def _safe_number(record: dict[str, Any], field: str) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _load_json_object(path: pathlib.Path) -> tuple[dict[str, Any] | None, str | None]:
+    if not path.exists():
+        return None, None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, f"cannot read {path.name}: {exc}"
+    if not isinstance(value, dict):
+        return None, f"{path.name} is not a JSON object"
+    return value, None
+
+
 def suite_metrics(
     repo_root: pathlib.Path,
     model: str,
@@ -221,8 +268,42 @@ def suite_metrics(
     ]
     recent = durations[-eta_window:] if eta_window > 0 else durations
     typical = statistics.median(recent) if recent else None
-    completed = len(completed_records)
-    low, high = wilson_interval(successes, completed)
+    attempted = len(records)
+    evaluated = len(completed_records)
+    low, high = wilson_interval(successes, evaluated)
+    suite_dir = repo_root / "output" / benchmark / model / suite
+    summary_path = suite_dir / "summary.json"
+    summary, summary_error = _load_json_object(summary_path)
+    summary_completed = None if summary is None else summary.get("completed_episodes")
+    warnings: list[str] = []
+    if malformed:
+        warnings.append(f"{malformed} malformed episode record(s)")
+    if duplicates:
+        warnings.append(f"{duplicates} duplicate/resumed episode record(s)")
+    if summary_error:
+        warnings.append(summary_error)
+    if summary_completed is not None:
+        try:
+            summary_completed = int(summary_completed)
+        except (TypeError, ValueError):
+            warnings.append("summary completed_episodes is not an integer")
+            summary_completed = None
+    if summary_completed is not None and summary_completed != attempted:
+        warnings.append(
+            f"episodes/summary mismatch: episodes={attempted}, summary={summary_completed}"
+        )
+    if attempted > total:
+        warnings.append(f"episode count exceeds manifest total: {attempted}>{total}")
+    if not paths:
+        data_state = "missing"
+    elif attempted == 0:
+        data_state = "empty"
+    elif attempted < total:
+        data_state = "partial"
+    elif attempted == total:
+        data_state = "complete"
+    else:
+        data_state = "overfull"
     return {
         "model": model,
         "model_label": MODELS[model]["label"],
@@ -232,18 +313,24 @@ def suite_metrics(
         "benchmark_label": BENCHMARKS[benchmark]["label"],
         "suite": suite,
         "suite_label": DISPLAY_SUITE[suite],
-        "completed": completed,
+        "completed": attempted,
+        "evaluated": evaluated,
         "total": total,
-        "completion_rate": completed / total if total else 0.0,
+        "completion_rate": attempted / total if total else 0.0,
         "successes": successes,
-        "success_rate": successes / completed if completed else 0.0,
+        "success_rate": successes / evaluated if evaluated else None,
         "success_ci95_low": low,
         "success_ci95_high": high,
         "errors": len(error_records),
         "malformed_records": malformed,
         "resume_duplicates": duplicates,
+        "data_state": data_state,
+        "runtime_state": "unknown",
+        "warnings": warnings,
+        "summary_path": str(summary_path),
+        "summary_completed": summary_completed,
         "typical_seconds": typical,
-        "eta_seconds": max(0, total - completed) * typical if typical is not None else None,
+        "eta_seconds": max(0, total - attempted) * typical if typical is not None else None,
         "mean_duration_seconds": statistics.fmean(durations) if durations else None,
         "median_duration_seconds": statistics.median(durations) if durations else None,
         "mean_steps": statistics.fmean(steps) if steps else None,
@@ -255,22 +342,25 @@ def suite_metrics(
 
 def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     completed = sum(row["completed"] for row in rows)
+    evaluated = sum(row.get("evaluated", row["completed"] - row["errors"]) for row in rows)
     total = sum(row["total"] for row in rows)
     successes = sum(row["successes"] for row in rows)
-    low, high = wilson_interval(successes, completed)
+    low, high = wilson_interval(successes, evaluated)
     etas = [row["eta_seconds"] for row in rows if row["eta_seconds"] is not None]
     return {
         "completed": completed,
+        "evaluated": evaluated,
         "total": total,
         "completion_rate": completed / total if total else 0.0,
         "successes": successes,
-        "success_rate": successes / completed if completed else 0.0,
+        "success_rate": successes / evaluated if evaluated else None,
         "success_ci95_low": low,
         "success_ci95_high": high,
         "errors": sum(row["errors"] for row in rows),
         "malformed_records": sum(row.get("malformed_records", 0) for row in rows),
         "resume_duplicates": sum(row.get("resume_duplicates", 0) for row in rows),
         "eta_seconds": max(etas) if etas else None,
+        "warnings": [warning for row in rows for warning in row.get("warnings", [])],
     }
 
 
@@ -278,17 +368,19 @@ def _difficulty_label(value: Any) -> str:
     return "Unspecified" if value is None else str(value)
 
 
-def _selected_plus_metadata(repo_root: pathlib.Path) -> tuple[pathlib.Path, list[dict[str, Any]]]:
+def _selected_plus_metadata(
+    repo_root: pathlib.Path, manifest_path: pathlib.Path | None = None
+) -> tuple[pathlib.Path, list[dict[str, Any]]]:
     plus_root = repo_root.parent / "LIBERO-plus"
     path = plus_root / "libero" / "libero" / "benchmark" / "task_classification.json"
     with path.open(encoding="utf-8") as stream:
         classification = json.load(stream)
-    manifest = load_sample_manifest(repo_root)
-    per_group = int(manifest["per_suite_per_category"])
+    manifest = load_sample_manifest(repo_root, manifest_path)
     categories = [str(value) for value in manifest["categories"]]
     selected: list[dict[str, Any]] = []
     for suite in SUITES:
         rows = classification[suite]
+        per_group = manifest_suite_quota(manifest, suite)
         for category in categories:
             candidates = [item for item in rows if str(item["category"]) == category]
             for item in candidates[:per_group]:
@@ -315,14 +407,16 @@ def _aggregate_group(records: list[dict[str, Any]], total: int) -> dict[str, Any
         for record in completed_records
         if (value := _safe_number(record, "steps")) is not None and value >= 0
     ]
-    completed = len(completed_records)
-    low, high = wilson_interval(successes, completed)
+    attempted = len(records)
+    evaluated = len(completed_records)
+    low, high = wilson_interval(successes, evaluated)
     return {
-        "completed": completed,
+        "completed": attempted,
+        "evaluated": evaluated,
         "total": total,
-        "completion_rate": completed / total if total else 0.0,
+        "completion_rate": attempted / total if total else 0.0,
         "successes": successes,
-        "success_rate": successes / completed if completed else 0.0,
+        "success_rate": successes / evaluated if evaluated else None,
         "success_ci95_low": low,
         "success_ci95_high": high,
         "errors": sum(record.get("error") is not None for record in records),
@@ -334,9 +428,11 @@ def _aggregate_group(records: list[dict[str, Any]], total: int) -> dict[str, Any
 
 
 def plus_group_metrics(
-    repo_root: pathlib.Path, suite_rows: list[dict[str, Any]]
+    repo_root: pathlib.Path,
+    suite_rows: list[dict[str, Any]],
+    manifest_path: pathlib.Path | None = None,
 ) -> dict[str, Any]:
-    classification_path, metadata = _selected_plus_metadata(repo_root)
+    classification_path, metadata = _selected_plus_metadata(repo_root, manifest_path)
     records_by_suite = {row["suite"]: row["records"] for row in suite_rows}
     all_records = [record for row in suite_rows for record in row["records"]]
     categories = []
@@ -424,32 +520,99 @@ def plus_group_metrics(
     }
 
 
+def _argument(tokens: list[str], name: str) -> str | None:
+    try:
+        index = tokens.index(name)
+    except ValueError:
+        return None
+    return tokens[index + 1] if index + 1 < len(tokens) else None
+
+
+def _process_environment(pid: int) -> dict[str, str]:
+    try:
+        raw = pathlib.Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return {}
+    result: dict[str, str] = {}
+    for item in raw.split(b"\0"):
+        if b"=" not in item:
+            continue
+        key, value = item.split(b"=", 1)
+        result[key.decode(errors="replace")] = value.decode(errors="replace")
+    return result
+
+
+def _suite_from_model_path(value: str | None) -> str | None:
+    if not value:
+        return None
+    if "libero-spatial" in value:
+        return "libero_spatial"
+    if "libero-goal" in value:
+        return "libero_goal"
+    if "libero-object" in value:
+        return "libero_object"
+    if "libero-long" in value or "libero-10" in value:
+        return "libero_10"
+    return None
+
+
+def _discover_processes() -> list[dict[str, Any]]:
+    processes: list[dict[str, Any]] = []
+    for proc_dir in pathlib.Path("/proc").glob("[0-9]*"):
+        try:
+            pid = int(proc_dir.name)
+            tokens = [
+                item.decode(errors="replace")
+                for item in (proc_dir / "cmdline").read_bytes().split(b"\0")
+                if item
+            ]
+        except (OSError, ValueError):
+            continue
+        if not tokens:
+            continue
+        is_eval = any(token.endswith("run_libero_plus_eval.py") for token in tokens)
+        is_server = any(token.endswith("scripts/inference_service.py") for token in tokens) and "--server" in tokens
+        if not is_eval and not is_server:
+            continue
+        environment = _process_environment(pid)
+        if is_eval:
+            kind = "eval"
+            model = _argument(tokens, "--model-variant") or environment.get("EVAL_MODEL_VARIANT")
+            suite = _argument(tokens, "--task-suite-name")
+        else:
+            kind = "server"
+            adapter = _argument(tokens, "--adapter-path")
+            model = environment.get("GR00T_MODEL_VARIANT")
+            if adapter and "gap-opqd" in adapter:
+                model = "groot-gap-opqd-w4a8"
+            suite = _suite_from_model_path(_argument(tokens, "--model_path"))
+        try:
+            port = int(_argument(tokens, "--port") or environment.get("GR00T_PORT", "0"))
+        except ValueError:
+            port = 0
+        gpu_text = environment.get("CUDA_VISIBLE_DEVICES")
+        processes.append(
+            {
+                "kind": kind,
+                "model": model or "unknown",
+                "benchmark": "libero-plus" if is_eval else "unknown",
+                "suite": suite or "unknown",
+                "pid": pid,
+                "gpu": gpu_text or "unknown",
+                "port": port,
+                "alive": True,
+                "command": " ".join(shlex.quote(token) for token in tokens),
+            }
+        )
+    return processes
+
+
 def runtime_status(repo_root: pathlib.Path) -> dict[str, Any]:
     manifest = repo_root / "runtime_logs" / "eval" / "processes.tsv"
-    processes: list[dict[str, Any]] = []
-    if manifest.exists():
-        for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
-            fields = line.split()
-            if len(fields) != 7:
-                continue
-            kind, model, benchmark, suite, pid_text, gpu_text, port_text = fields
-            try:
-                pid, gpu, port = int(pid_text), int(gpu_text), int(port_text)
-            except ValueError:
-                continue
-            processes.append(
-                {
-                    "kind": kind,
-                    "model": model,
-                    "benchmark": benchmark,
-                    "suite": suite,
-                    "pid": pid,
-                    "gpu": gpu,
-                    "port": port,
-                    "alive": pathlib.Path(f"/proc/{pid}").exists(),
-                }
-            )
-    server_ports = sorted({item["port"] for item in processes if item["kind"] == "server"})
+    processes = _discover_processes()
+    server_ports = sorted(
+        {item["port"] for item in processes if item["kind"] == "server" and item["port"] > 0}
+    )
     ports: dict[str, bool] = {}
     for port in server_ports:
         connection = socket.socket()
@@ -469,13 +632,60 @@ def runtime_status(repo_root: pathlib.Path) -> dict[str, Any]:
     }
 
 
-def build_snapshot(repo_root: pathlib.Path, eta_window: int = 10) -> dict[str, Any]:
-    totals_config = benchmark_totals(repo_root)
+def _decorate_runtime_states(models: dict[str, Any], runtime: dict[str, Any]) -> None:
+    for model, model_data in models.items():
+        for benchmark, rows in model_data["benchmarks"].items():
+            for row in rows:
+                eval_alive = any(
+                    process["kind"] == "eval"
+                    and process["model"] == model
+                    and process["suite"] == row["suite"]
+                    for process in runtime["processes"]
+                )
+                server_alive = any(
+                    process["kind"] == "server"
+                    and process["model"] == model
+                    and process["suite"] == row["suite"]
+                    for process in runtime["processes"]
+                )
+                if row["data_state"] == "complete":
+                    state = "done"
+                elif eval_alive:
+                    state = "running"
+                elif row["data_state"] in {"partial", "overfull"}:
+                    state = "stopped"
+                elif row["data_state"] == "empty" and (server_alive or eval_alive):
+                    state = "starting"
+                elif row["data_state"] == "empty":
+                    state = "empty"
+                else:
+                    state = "not-started"
+                row["runtime_state"] = state
+                row["server_alive"] = server_alive
+                row["evaluator_alive"] = eval_alive
+
+
+def build_snapshot(
+    repo_root: pathlib.Path,
+    eta_window: int = 10,
+    manifest_path: pathlib.Path | None = None,
+    selected_models: tuple[str, ...] | list[str] | None = None,
+    selected_benchmarks: tuple[str, ...] | list[str] | None = None,
+) -> dict[str, Any]:
+    selected_models = tuple(selected_models or PRIMARY_MODELS)
+    selected_benchmarks = tuple(selected_benchmarks or ("libero-plus",))
+    unknown_models = sorted(set(selected_models) - set(MODELS))
+    unknown_benchmarks = sorted(set(selected_benchmarks) - set(BENCHMARKS))
+    if unknown_models:
+        raise ValueError(f"unknown model(s): {', '.join(unknown_models)}")
+    if unknown_benchmarks:
+        raise ValueError(f"unknown benchmark(s): {', '.join(unknown_benchmarks)}")
+    totals_config = benchmark_totals(repo_root, manifest_path)
     models: dict[str, Any] = OrderedDict()
-    for model in MODELS:
+    for model in selected_models:
         benchmark_rows: dict[str, list[dict[str, Any]]] = OrderedDict()
         totals: dict[str, dict[str, Any]] = OrderedDict()
-        for benchmark in BENCHMARKS:
+        for benchmark in selected_benchmarks:
             rows = [
                 suite_metrics(
                     repo_root,
@@ -489,17 +699,33 @@ def build_snapshot(repo_root: pathlib.Path, eta_window: int = 10) -> dict[str, A
             ]
             benchmark_rows[benchmark] = rows
             totals[benchmark] = aggregate_rows(rows)
+        plus_rows = benchmark_rows.get("libero-plus")
         models[model] = {
             "config": MODELS[model],
             "benchmarks": benchmark_rows,
             "totals": totals,
-            "libero_plus_groups": plus_group_metrics(repo_root, benchmark_rows["libero-plus"]),
+            "libero_plus_groups": (
+                plus_group_metrics(repo_root, plus_rows, manifest_path) if plus_rows is not None else None
+            ),
         }
+    runtime = runtime_status(repo_root)
+    _decorate_runtime_states(models, runtime)
+    warnings = []
+    for model, model_data in models.items():
+        for rows in model_data["benchmarks"].values():
+            for row in rows:
+                warnings.extend(
+                    f'{model}/{row["benchmark"]}/{row["suite"]}: {warning}'
+                    for warning in row.get("warnings", [])
+                )
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "repo_root": str(repo_root),
         "eta_window": eta_window,
-        "sample_manifest": load_sample_manifest(repo_root),
+        "sample_manifest": load_sample_manifest(repo_root, manifest_path),
+        "selected_models": list(selected_models),
+        "selected_benchmarks": list(selected_benchmarks),
         "models": models,
-        "runtime": runtime_status(repo_root),
+        "runtime": runtime,
+        "warnings": warnings,
     }

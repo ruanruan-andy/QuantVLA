@@ -235,3 +235,40 @@ model/quantvla/groot-n1.5/libero_10/duquant_pack
 ```
 
 删除后模型会在下次启动时重新执行 116 个层的 `pack_weight()`，增加启动时间并降低实验复现的稳定性。当前训练和最终 eval 完成前不要删除。
+
+## 10. Monitor 与 Collect
+
+实时查看三模型的四-suite、七分类、真实进程状态和数据一致性 warning：
+
+```bash
+./monitor_eval.sh
+```
+
+只查看一次：
+
+```bash
+./monitor_eval.sh --once
+```
+
+生成允许 partial 的中间报告：
+
+```bash
+./collect_eval.sh \
+  --output-dir output/summary/gap-opqd-first24
+```
+
+生成最终报告时必须启用严格模式：
+
+```bash
+./collect_eval.sh \
+  --require-complete \
+  --output-dir output/summary/gap-opqd-first24-final
+```
+
+严格模式要求选中模型全部达到每 suite `42/42`、总计 `168/168`，并且没有 JSON 损坏、重复/超量记录或 `episodes.jsonl` 与 `summary.json` 不一致。
+
+完整字段、输出文件和故障处理见：
+
+```text
+docs/GAP_OPQD_Monitor_Collect_CN.md
+```
