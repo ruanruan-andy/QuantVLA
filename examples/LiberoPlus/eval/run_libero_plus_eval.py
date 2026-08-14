@@ -47,6 +47,7 @@ class LiberoPlusEvalConfig:
     resume: bool = False
     model_variant: str = "groot-fp16"
     sample_manifest: str | None = None
+    policy_seed: int = 0
 
 
 def _default_output_dir() -> Path:
@@ -86,7 +87,16 @@ def _select_tasks(
             raise ValueError(
                 f"Unsupported sample selection {manifest.get('selection')!r} in {manifest_path}"
             )
-        per_group = int(manifest["per_suite_per_category"])
+        per_suite = manifest["per_suite_per_category"]
+        if isinstance(per_suite, dict):
+            if cfg.task_suite_name not in per_suite:
+                raise ValueError(
+                    f"Manifest {manifest_path} has no quota for suite "
+                    f"{cfg.task_suite_name!r}"
+                )
+            per_group = int(per_suite[cfg.task_suite_name])
+        else:
+            per_group = int(per_suite)
         categories = [str(value) for value in manifest["categories"]]
         if per_group <= 0:
             raise ValueError("per_suite_per_category must be positive")
@@ -315,7 +325,14 @@ def evaluate(cfg: LiberoPlusEvalConfig) -> None:
                         image, wrist_image = get_libero_image(obs)
                         top_view.append(image)
                         wrist_view.append(wrist_image)
-                        action = policy.get_action(obs, task_description)
+                        step_seed = (
+                            cfg.policy_seed
+                            + task_id * 1_000_000
+                            + (steps - cfg.num_steps_wait)
+                        )
+                        action = policy.get_action(
+                            obs, task_description, policy_seed=step_seed
+                        )
                         obs, _, done, _ = env.step(action.tolist())
                     steps += 1
                     if done:

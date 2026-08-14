@@ -77,6 +77,8 @@ class GenerateConfig:
     resume: bool = False
     """Stable identifier used to isolate FP16 and QuantVLA outputs."""
     model_variant: str = "groot-fp16"
+    """Base seed for deterministic per-task/per-step flow noise."""
+    policy_seed: int = 0
 
 
 class GR00TPolicy:
@@ -103,9 +105,11 @@ class GR00TPolicy:
         self.action_keys = ["x", "y", "z", "roll", "pitch", "yaw", "gripper"]
         self.headless = headless
 
-    def get_action(self, observation_dict, lang: str):
+    def get_action(self, observation_dict, lang: str, policy_seed: int | None = None):
         """Get action from GR00T policy given observation and language instruction."""
         obs_dict = self._process_observation(observation_dict, lang)
+        if policy_seed is not None:
+            obs_dict["__policy_seed"] = int(policy_seed)
         # summarize_obs(obs_dict)
         action_chunk = self.policy.get_action(obs_dict)
         return self._convert_to_libero_action(action_chunk, 0)
@@ -287,7 +291,15 @@ def eval_libero(cfg: GenerateConfig) -> None:
                             img, wrist_img = get_libero_image(obs)
                             top_view.append(img)
                             wrist_view.append(wrist_img)
-                            action = gr00t_policy.get_action(obs, task.language)
+                            step_seed = (
+                                cfg.policy_seed
+                                + task_id * 1_000_000
+                                + episode_idx * 10_000
+                                + (t - cfg.num_steps_wait)
+                            )
+                            action = gr00t_policy.get_action(
+                                obs, task.language, policy_seed=step_seed
+                            )
                             obs, _, done, _ = env.step(action.tolist())
                             t += 1
                             if done:

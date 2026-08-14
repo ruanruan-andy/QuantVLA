@@ -1,0 +1,40 @@
+# Reference configuration. scripts/train_gap_opqd.py uses tyro CLI flags;
+# pass these values explicitly or translate them into your launcher.
+task_suite_name: libero_spatial
+output_dir: output/gap-opqd-ood/libero_spatial
+sample_manifest: configs/libero_plus/first_24_per_category.json
+max_iterations: 100
+rollout_horizon: 16
+num_steps_wait: 10
+task_ids: null
+initial_state_ids: [0]
+seed: 20260813
+
+env_port: 5590
+clean_env_port: 5591
+clean_task_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+clean_initial_state_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]
+clean_anchor_rollout_horizon: 4
+
+device: cuda:0
+denoising_steps: 8
+action_dims: 7
+
+learning_rate: 5.0e-5
+weight_decay: 0.0
+gradient_clip_norm: 1.0
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.0
+
+temporal_horizon: 4
+temporal_discount: 0.9
+alpha_q: 1.0
+beta_r: 1.0
+weight_min: 1.0
+weight_max: 5.0
+
+lambda_anchor: 0.1
+anchor_replay_size: 256
+anchor_batch_size: 4
+save_every: 100

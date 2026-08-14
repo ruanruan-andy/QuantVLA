@@ -56,7 +56,7 @@ export TORCHDYNAMO_DISABLE=1
 export TORCH_CUDA_GRAPH_DISABLE=1
 export TORCHINDUCTOR_DISABLE_CUDAGRAPHS=1
 export GR00T_DENOISING_STEPS="${GR00T_DENOISING_STEPS:-8}"
-export GR00T_MODEL_VARIANT="groot-quantvla-w4a8"
+export GR00T_MODEL_VARIANT="${GR00T_MODEL_VARIANT:-groot-quantvla-w4a8}"
 
 echo "=========================================="
 echo "Starting QuantVLA GR00T N1.5 W4A8"

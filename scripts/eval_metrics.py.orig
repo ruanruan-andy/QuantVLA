@@ -148,13 +148,6 @@ def load_effective_records(
             try:
                 record = json.loads(line)
                 key = _record_key(benchmark, record)
-            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                malformed += 1
-                continue
-            valid_lines += 1
-            effective[key] = (sequence, record)
-    ordered = [item[1] for item in sorted(effective.values(), key=lambda item: item[0])]
-    return ordered, malformed, valid_lines - len(ordered)
 
 
 def model_episode_paths(
@@ -186,6 +179,13 @@ def load_model_records(
         malformed += file_malformed
         duplicates += file_duplicates
     return records, malformed, duplicates
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                malformed += 1
+                continue
+            valid_lines += 1
+            effective[key] = (sequence, record)
+    ordered = [item[1] for item in sorted(effective.values(), key=lambda item: item[0])]
+    return ordered, malformed, valid_lines - len(ordered)
 
 
 def _safe_number(record: dict[str, Any], field: str) -> float | None:
@@ -249,7 +249,7 @@ def suite_metrics(
         "mean_steps": statistics.fmean(steps) if steps else None,
         "median_steps": statistics.median(steps) if steps else None,
         "records": records,
-        "episodes_path": ",".join(str(path) for path in paths),
+        "episodes_path": str(path),
     }
 
 

@@ -171,11 +171,33 @@ class GR00T_N1_5(PreTrainedModel):
     def get_action(
         self,
         inputs: dict,
+        initial_noise: torch.Tensor | None = None,
     ) -> BatchFeature:
         backbone_inputs, action_inputs = self.prepare_input(inputs)
         # Because the behavior of backbones remains the same for training and inference, we can use `forward` for backbones.
         backbone_outputs = self.backbone(backbone_inputs)
-        action_head_outputs = self.action_head.get_action(backbone_outputs, action_inputs)
+        action_head_outputs = self.action_head.get_action(
+            backbone_outputs, action_inputs, initial_noise=initial_noise
+        )
+        self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
+        return action_head_outputs
+
+    def sample_actions(
+        self,
+        inputs: dict,
+        initial_noise: torch.Tensor | None = None,
+    ) -> BatchFeature:
+        """Differentiable flow sampling used by GAP-OPQD.
+
+        Normal inference should continue to call :meth:`get_action`.  This method is
+        intentionally separate so training code must opt in to retaining the action
+        sampling graph.
+        """
+        backbone_inputs, action_inputs = self.prepare_input(inputs)
+        backbone_outputs = self.backbone(backbone_inputs)
+        action_head_outputs = self.action_head.sample_actions(
+            backbone_outputs, action_inputs, initial_noise=initial_noise
+        )
         self.validate_data(action_head_outputs, backbone_outputs, is_training=False)
         return action_head_outputs
 

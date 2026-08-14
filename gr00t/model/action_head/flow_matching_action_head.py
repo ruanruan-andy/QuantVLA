@@ -349,9 +349,19 @@ class FlowmatchingActionHead(nn.Module):
         }
         return BatchFeature(data=output_dict)
 
-    @torch.no_grad()
-    def get_action(self, backbone_output: BatchFeature, action_input: BatchFeature) -> BatchFeature:
+    def sample_actions(
+        self,
+        backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        initial_noise: torch.Tensor | None = None,
+    ) -> BatchFeature:
+        """Sample an action chunk while preserving the autograd graph.
 
+        ``initial_noise`` makes flow sampling deterministic and lets a full-precision
+        teacher and quantized student use exactly the same stochastic input.  The
+        public inference path remains :meth:`get_action`, which wraps this method in
+        ``torch.no_grad``.
+        """
         backbone_output = self.process_backbone_output(backbone_output)
 
         # Get vision and language embeddings.
@@ -364,11 +374,16 @@ class FlowmatchingActionHead(nn.Module):
         # Set initial actions as the sampled noise.
         batch_size = vl_embs.shape[0]
         device = vl_embs.device
-        actions = torch.randn(
-            size=(batch_size, self.config.action_horizon, self.config.action_dim),
-            dtype=vl_embs.dtype,
-            device=device,
-        )
+        expected_shape = (batch_size, self.config.action_horizon, self.config.action_dim)
+        if initial_noise is None:
+            actions = torch.randn(size=expected_shape, dtype=vl_embs.dtype, device=device)
+        else:
+            if tuple(initial_noise.shape) != expected_shape:
+                raise ValueError(
+                    f"initial_noise must have shape {expected_shape}, got "
+                    f"{tuple(initial_noise.shape)}"
+                )
+            actions = initial_noise.to(device=device, dtype=vl_embs.dtype)
 
         num_steps = self.num_inference_timesteps
         dt = 1.0 / num_steps
@@ -406,6 +421,16 @@ class FlowmatchingActionHead(nn.Module):
             # Update actions using euler integration.
             actions = actions + dt * pred_velocity
         return BatchFeature(data={"action_pred": actions})
+
+    @torch.no_grad()
+    def get_action(
+        self,
+        backbone_output: BatchFeature,
+        action_input: BatchFeature,
+        initial_noise: torch.Tensor | None = None,
+    ) -> BatchFeature:
+        """Inference-only action sampling with optional deterministic noise."""
+        return self.sample_actions(backbone_output, action_input, initial_noise=initial_noise)
 
     @property
     def device(self):

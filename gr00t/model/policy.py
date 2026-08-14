@@ -168,6 +168,13 @@ class Gr00tPolicy(BasePolicy):
         """
         # Create a copy to avoid mutating input
         obs_copy = observations.copy()
+        policy_seed = obs_copy.pop("__policy_seed", None)
+        if isinstance(policy_seed, np.ndarray):
+            if policy_seed.size != 1:
+                raise ValueError("__policy_seed must be a scalar")
+            policy_seed = int(policy_seed.reshape(-1)[0])
+        elif policy_seed is not None:
+            policy_seed = int(policy_seed)
 
         is_batch = self._check_state_is_batched(obs_copy)
         if not is_batch:
@@ -179,17 +186,41 @@ class Gr00tPolicy(BasePolicy):
                 obs_copy[k] = np.array(v)
 
         normalized_input = self.apply_transforms(obs_copy)
-        normalized_action = self._get_action_from_normalized_input(normalized_input)
+        normalized_action = self._get_action_from_normalized_input(
+            normalized_input, policy_seed=policy_seed
+        )
         unnormalized_action = self._get_unnormalized_action(normalized_action)
 
         if not is_batch:
             unnormalized_action = squeeze_dict_values(unnormalized_action)
         return unnormalized_action
 
-    def _get_action_from_normalized_input(self, normalized_input: Dict[str, Any]) -> torch.Tensor:
+    def _get_action_from_normalized_input(
+        self,
+        normalized_input: Dict[str, Any],
+        policy_seed: int | None = None,
+    ) -> torch.Tensor:
         # Set up autocast context if needed
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=COMPUTE_DTYPE):
-            model_pred = self.model.get_action(normalized_input)
+            inference_model = (
+                self.model.get_base_model() if hasattr(self.model, "get_base_model") else self.model
+            )
+            initial_noise = None
+            if policy_seed is not None:
+                batch_size = int(normalized_input["state"].shape[0])
+                action_head = inference_model.action_head
+                generator = torch.Generator(device=action_head.device).manual_seed(policy_seed)
+                initial_noise = torch.randn(
+                    batch_size,
+                    action_head.config.action_horizon,
+                    action_head.config.action_dim,
+                    generator=generator,
+                    device=action_head.device,
+                    dtype=action_head.dtype,
+                )
+            model_pred = inference_model.get_action(
+                normalized_input, initial_noise=initial_noise
+            )
 
         normalized_action = model_pred["action_pred"].float()
         return normalized_action

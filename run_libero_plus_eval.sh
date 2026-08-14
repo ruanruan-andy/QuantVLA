@@ -33,14 +33,14 @@ case "$TASK" in
     *) echo "Unsupported LIBERO-Plus suite: $TASK" >&2; exit 1 ;;
 esac
 case "$MODEL_VARIANT" in
-    groot-fp16|groot-quantvla-w4a8) ;;
+    groot-fp16|groot-quantvla-w4a8|groot-gap-opqd-w4a8) ;;
     *) echo "Unsupported model variant: $MODEL_VARIANT" >&2; exit 1 ;;
 esac
 if [[ "$MODEL_ARG_PRESENT" == 0 ]]; then
     EXTRA_ARGS+=(--model-variant "$MODEL_VARIANT")
 fi
 if [[ "$SAMPLE_ARG_PRESENT" == 0 ]]; then
-    EXTRA_ARGS+=(--sample-manifest "$REPO_ROOT/configs/libero_plus/first_100_per_category.json")
+    EXTRA_ARGS+=(--sample-manifest "$REPO_ROOT/configs/libero_plus/first_24_per_category.json")
 fi
 
 if [[ ! -d "$LIBERO_PLUS_ROOT/libero/libero/assets" ]]; then

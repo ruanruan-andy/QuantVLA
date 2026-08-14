@@ -55,6 +55,11 @@ esac
 
 # Allow override of denoising steps via environment variable
 DENOISING_STEPS=${GR00T_DENOISING_STEPS:-8}
+ADAPTER_PATH=${GR00T_ADAPTER_PATH:-}
+ADAPTER_ARGS=()
+if [[ -n "$ADAPTER_PATH" ]]; then
+    ADAPTER_ARGS+=(--adapter-path "$ADAPTER_PATH")
+fi
 
 echo "=========================================="
 echo "Starting GR00T inference server for $TASK"
@@ -65,6 +70,7 @@ echo "Repository: $REPO_ROOT"
 echo "Model cache: $HF_HOME"
 echo "Port: $PORT"
 echo "Denoising Steps: $DENOISING_STEPS"
+echo "PEFT Adapter: ${ADAPTER_PATH:-none}"
 echo "=========================================="
 
 cd "$REPO_ROOT"
@@ -75,4 +81,5 @@ exec python scripts/inference_service.py \
     --data_config "$DATA_CONFIG" \
     --denoising-steps "$DENOISING_STEPS" \
     --port "$PORT" \
-    --embodiment-tag new_embodiment
+    --embodiment-tag new_embodiment \
+    "${ADAPTER_ARGS[@]}"

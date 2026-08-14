@@ -1,0 +1,65 @@
+{
+  "model_variant": "groot-quantvla-w4a8",
+  "suite": "libero_object",
+  "selection": {
+    "task_suite_name": "libero_object",
+    "port": 5582,
+    "headless": true,
+    "num_steps_wait": 10,
+    "num_trials_per_task": 1,
+    "task_ids": null,
+    "category": "Camera Viewpoints",
+    "difficulty": null,
+    "max_tasks": null,
+    "sample_seed": 0,
+    "save_video": true,
+    "resume": false,
+    "model_variant": "groot-quantvla-w4a8",
+    "sample_manifest": "/lumos-vePFS/suda/ruan/QuantVLA/configs/libero_plus/first_100_per_category.json"
+  },
+  "selected_tasks": 25,
+  "completed_episodes": 25,
+  "successes": 16,
+  "success_rate": 0.64,
+  "errors": 0,
+  "by_category": {
+    "Camera Viewpoints": {
+      "episodes": 25,
+      "successes": 16,
+      "success_rate": 0.64,
+      "errors": 0
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "episodes": 11,
+      "successes": 7,
+      "success_rate": 0.6363636363636364,
+      "errors": 0
+    },
+    "2": {
+      "episodes": 8,
+      "successes": 5,
+      "success_rate": 0.625,
+      "errors": 0
+    },
+    "3": {
+      "episodes": 1,
+      "successes": 0,
+      "success_rate": 0.0,
+      "errors": 0
+    },
+    "4": {
+      "episodes": 4,
+      "successes": 3,
+      "success_rate": 0.75,
+      "errors": 0
+    },
+    "5": {
+      "episodes": 1,
+      "successes": 1,
+      "success_rate": 1.0,
+      "errors": 0
+    }
+  }
+}

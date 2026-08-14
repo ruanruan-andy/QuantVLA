@@ -86,6 +86,9 @@ class ArgsConfig:
     denoising_steps: int = 4
     """The number of denoising steps to use."""
 
+    adapter_path: str = None
+    """Optional PEFT adapter (for example, a GAP-OPQD action-head LoRA)."""
+
     api_token: str = None
     """API token for authentication. If not provided, authentication is disabled."""
 
@@ -162,6 +165,18 @@ def main(args: ArgsConfig):
             embodiment_tag=args.embodiment_tag,
             denoising_steps=args.denoising_steps,
         )
+
+        if args.adapter_path is not None:
+            from pathlib import Path
+
+            from peft import PeftModel
+
+            adapter_path = Path(args.adapter_path).expanduser().resolve()
+            if not adapter_path.is_dir():
+                raise FileNotFoundError(f"PEFT adapter directory not found: {adapter_path}")
+            policy.model = PeftModel.from_pretrained(policy.model, adapter_path)
+            policy.model.eval()
+            print(f"Loaded PEFT adapter: {adapter_path}")
 
         # Start the server
         if args.http_server:
