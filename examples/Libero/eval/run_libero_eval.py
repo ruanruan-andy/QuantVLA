@@ -69,6 +69,8 @@ class GenerateConfig:
     port: int = 5555
     """Headless mode (no GUI)."""
     headless: bool = False
+    """Save rollout videos next to the episode log."""
+    save_video: bool = True
     """Run only the specified task indices (overrides order if provided)."""
     task_ids: list[int] | None = None
     """Run tasks in this explicit order."""
@@ -312,7 +314,7 @@ def eval_libero(cfg: GenerateConfig) -> None:
                     key = (task_id, episode_idx)
                     provisional_total = len(records_by_key) + (key not in records_by_key)
                     video_path = None
-                    if top_view and wrist_view:
+                    if cfg.save_video and top_view and wrist_view:
                         try:
                             video_path = save_rollout_video(
                                 top_view,

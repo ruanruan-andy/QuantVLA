@@ -10,7 +10,22 @@ from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
-from eval_metrics import BENCHMARKS, MODELS, PRIMARY_MODELS, build_snapshot, format_duration
+from eval_metrics import (
+    BENCHMARKS,
+    CATEGORY_ORDER,
+    METHOD_TO_MODEL,
+    MODELS,
+    PRIMARY_MODELS,
+    build_snapshot,
+    format_duration,
+)
+
+
+METHOD_NAMES = {
+    "groot-fp16": "FP16",
+    "groot-quantvla-w4a8": "QuantVLA",
+    "groot-gap-opqd-w4a8": "QuantVLA-OPQD",
+}
 
 
 def _percent(value: float | None, digits: int = 1) -> str:
@@ -157,7 +172,7 @@ def _comparison_table(snapshot: dict, dimension: str) -> Table | None:
     table.add_column("Suite" if dimension == "suite" else "Category", no_wrap=True)
     table.add_column("FP16", justify="right", no_wrap=True)
     table.add_column("QuantVLA", justify="right", no_wrap=True)
-    table.add_column("GAP-OPQD", justify="right", no_wrap=True)
+    table.add_column("QuantVLA-OPQD", justify="right", no_wrap=True)
     table.add_column("OPQD-Quant", justify="right", no_wrap=True)
     if dimension == "suite":
         benchmark = "libero-plus"
@@ -191,58 +206,180 @@ def _comparison_table(snapshot: dict, dimension: str) -> Table | None:
     return table
 
 
+def _compact_cell(row: dict, *, runtime: bool = True) -> Text:
+    state = row.get("runtime_state", "") if runtime else ""
+    if row["completed"] == row["total"]:
+        marker, style = "✓", "green"
+    elif state == "running":
+        marker, style = "▶", "bold cyan"
+    elif row["completed"]:
+        marker, style = "…", "yellow"
+    else:
+        marker, style = "·", "dim"
+    rate = _percent(row.get("success_rate"))
+    error = f' E{row["errors"]}' if row.get("errors") else ""
+    return Text(
+        f'{marker} {rate} {row["completed"]}/{row["total"]}{error}',
+        style="red" if row.get("errors") else style,
+    )
+
+
+def _overview_table(snapshot: dict) -> Table:
+    table = Table(title="Method overview", box=box.SIMPLE_HEAVY, pad_edge=False)
+    table.add_column("Method", no_wrap=True, style="bold")
+    table.add_column("Benchmark", no_wrap=True)
+    table.add_column("Progress", justify="right", no_wrap=True)
+    table.add_column("Success", justify="right", no_wrap=True)
+    table.add_column("Errors", justify="right", no_wrap=True)
+    table.add_column("Running", justify="right", no_wrap=True)
+    table.add_column("ETA", justify="right", no_wrap=True)
+    for model in snapshot["selected_models"]:
+        data = snapshot["models"][model]
+        for benchmark in snapshot["selected_benchmarks"]:
+            total = data["totals"][benchmark]
+            rows = data["benchmarks"][benchmark]
+            running = sum(row["runtime_state"] == "running" for row in rows)
+            table.add_row(
+                METHOD_NAMES.get(model, model),
+                "Plus" if benchmark == "libero-plus" else "LIBERO",
+                f'{total["completed"]}/{total["total"]}',
+                _percent(total["success_rate"]),
+                str(total["errors"]),
+                str(running),
+                format_duration(total["eta_seconds"]),
+            )
+    return table
+
+
+def _suite_matrix(snapshot: dict, benchmark: str) -> Table:
+    table = Table(
+        title=f'{BENCHMARKS[benchmark]["label"]} · suite comparison',
+        box=box.SIMPLE_HEAVY,
+        pad_edge=False,
+    )
+    table.add_column("Suite", no_wrap=True, style="bold")
+    for model in snapshot["selected_models"]:
+        table.add_column(METHOD_NAMES.get(model, model), justify="right", no_wrap=True)
+    if all(model in snapshot["models"] for model in PRIMARY_MODELS):
+        table.add_column("OPQD-Quant", justify="right", no_wrap=True)
+    table.add_column("Slowest ETA", justify="right", no_wrap=True)
+    indexed = {
+        model: {
+            row["suite"]: row
+            for row in snapshot["models"][model]["benchmarks"][benchmark]
+        }
+        for model in snapshot["selected_models"]
+    }
+    first_model = snapshot["selected_models"][0]
+    for suite, first_row in indexed[first_model].items():
+        method_rows = [indexed[model][suite] for model in snapshot["selected_models"]]
+        cells: list[object] = [first_row["suite_label"]]
+        cells.extend(_compact_cell(row) for row in method_rows)
+        if all(model in indexed for model in PRIMARY_MODELS):
+            cells.append(
+                _delta(
+                    indexed[PRIMARY_MODELS[2]][suite]["success_rate"],
+                    indexed[PRIMARY_MODELS[1]][suite]["success_rate"],
+                )
+            )
+        incomplete_rows = [row for row in method_rows if row["completed"] < row["total"]]
+        if not incomplete_rows:
+            eta = "0s"
+        elif any(row["eta_seconds"] is None for row in incomplete_rows):
+            eta = "—"
+        else:
+            slowest = max(incomplete_rows, key=lambda row: row["eta_seconds"])
+            eta = f'{METHOD_NAMES.get(slowest["model"], slowest["model"])} {format_duration(slowest["eta_seconds"])}'
+        cells.append(eta)
+        table.add_row(*cells)
+    return table
+
+
+def _suite_category_matrix(snapshot: dict) -> Table | None:
+    if "libero-plus" not in snapshot["selected_benchmarks"]:
+        return None
+    available = [
+        model
+        for model in snapshot["selected_models"]
+        if snapshot["models"][model]["libero_plus_groups"] is not None
+    ]
+    if not available:
+        return None
+    table = Table(
+        title="LIBERO-Plus · 4 suites × 7 generalization categories",
+        box=box.SIMPLE_HEAVY,
+        pad_edge=False,
+    )
+    table.add_column("Suite", no_wrap=True, style="bold")
+    table.add_column("Category", no_wrap=True)
+    for model in available:
+        table.add_column(METHOD_NAMES.get(model, model), justify="right", no_wrap=True)
+    if all(model in available for model in PRIMARY_MODELS):
+        table.add_column("OPQD-Quant", justify="right", no_wrap=True)
+    indexed = {
+        model: {
+            (row["suite"], row["category"]): row
+            for row in snapshot["models"][model]["libero_plus_groups"]["suite_categories"]
+        }
+        for model in available
+    }
+    suite_labels = {
+        row["suite"]: row["suite_label"]
+        for row in snapshot["models"][available[0]]["benchmarks"]["libero-plus"]
+    }
+    for suite_index, suite in enumerate(suite_labels):
+        if suite_index:
+            table.add_section()
+        for category_index, category in enumerate(CATEGORY_ORDER):
+            first = indexed[available[0]][suite, category]
+            cells: list[object] = [
+                suite_labels[suite] if category_index == 0 else "",
+                first["category_label"],
+            ]
+            cells.extend(_compact_cell(indexed[model][suite, category], runtime=False) for model in available)
+            if all(model in indexed for model in PRIMARY_MODELS):
+                cells.append(
+                    _delta(
+                        indexed[PRIMARY_MODELS[2]][suite, category]["success_rate"],
+                        indexed[PRIMARY_MODELS[1]][suite, category]["success_rate"],
+                    )
+                )
+            table.add_row(*cells)
+    return table
+
+
 def build_dashboard(snapshot: dict) -> Group:
     runtime = snapshot["runtime"]
-    populated = runtime["servers_total"] > 0 and runtime["evaluators_total"] > 0
-    status_ok = populated and (
-        runtime["servers_alive"] == runtime["servers_total"]
-        and runtime["evaluators_alive"] == runtime["evaluators_total"]
-        and runtime["ports_alive"] == runtime["ports_total"]
-    )
     header = Text()
     header.append("QuantVLA Eval Monitor", style="bold")
-    header.append(f'  {snapshot["generated_at"]}  ')
+    header.append(f'  run={snapshot["run_name"]}  {snapshot["generated_at"]}\n', style="dim")
     header.append(
-        f'服务 {runtime["servers_alive"]}/{runtime["servers_total"]}  '
-        f'Eval {runtime["evaluators_alive"]}/{runtime["evaluators_total"]}  '
-        f'端口 {runtime["ports_alive"]}/{runtime["ports_total"]}',
-        style="green" if status_ok else "yellow" if not populated else "red",
+        f'active: servers={runtime["servers_alive"]}  evaluators={runtime["evaluators_alive"]}  '
+        f'ports={runtime["ports_alive"]}/{runtime["ports_total"]}  output={snapshot["output_root"]}',
+        style="cyan" if runtime["evaluators_alive"] else "dim",
     )
-    blocks: list[object] = [header]
-    for model in snapshot["selected_models"]:
-        model_config = MODELS[model]
-        data = snapshot["models"][model]
-        blocks.append(Text(model_config["label"], style="bold white on blue"))
-        for benchmark in snapshot["selected_benchmarks"]:
-            benchmark_config = BENCHMARKS[benchmark]
-            blocks.append(
-                _benchmark_table(
-                    benchmark_config["label"],
-                    data["benchmarks"][benchmark],
-                    data["totals"][benchmark],
-                )
-            )
-        if data["libero_plus_groups"] is not None:
-            blocks.append(
-                _category_table(
-                    "LIBERO-Plus · Generalization Categories",
-                    data["libero_plus_groups"]["categories"],
-                    data["totals"]["libero-plus"],
-                )
-            )
-    for dimension in ("suite", "category"):
-        comparison = _comparison_table(snapshot, dimension)
-        if comparison is not None:
-            blocks.append(comparison)
+    blocks: list[object] = [header, _overview_table(snapshot)]
+    for benchmark in snapshot["selected_benchmarks"]:
+        blocks.append(_suite_matrix(snapshot, benchmark))
+    category_matrix = _suite_category_matrix(snapshot)
+    if category_matrix is not None:
+        blocks.append(category_matrix)
     if snapshot["warnings"]:
-        warning_text = Text("Data warnings\n", style="bold red")
-        for warning in snapshot["warnings"]:
+        shown = snapshot["warnings"][:6]
+        warning_text = Text(f'Data warnings ({len(snapshot["warnings"])})\n', style="bold red")
+        for warning in shown:
             warning_text.append(f"- {warning}\n", style="yellow")
+        if len(snapshot["warnings"]) > len(shown):
+            warning_text.append(
+                f'- … {len(snapshot["warnings"]) - len(shown)} more; run collect for details\n',
+                style="dim",
+            )
         blocks.append(warning_text)
     blocks.append(
         Text(
-            f'ETA 使用最近 {snapshot["eta_window"]} 个成功完成 rollout 的耗时中位数；'
-            "并行总 ETA 取最慢 suite。Ctrl+C 只退出监控，不停止评测。",
+            "Cell = success rate + completed/expected; ✓ complete, ▶ running, … partial. "
+            f'ETA uses the median of the latest {snapshot["eta_window"]} valid rollouts. '
+            "Ctrl+C exits only the monitor.",
             style="dim",
         )
     )
@@ -255,20 +392,44 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=5.0, help="Refresh interval in seconds")
     parser.add_argument("--eta-window", type=int, default=10, help="Recent rollouts used for ETA")
     parser.add_argument("--manifest", type=pathlib.Path, default=None, help="LIBERO-Plus sample manifest")
-    parser.add_argument("--models", nargs="+", choices=tuple(MODELS), default=list(PRIMARY_MODELS))
+    parser.add_argument(
+        "--methods",
+        "--models",
+        dest="methods",
+        nargs="+",
+        choices=tuple(METHOD_TO_MODEL) + tuple(MODELS),
+        default=list(METHOD_TO_MODEL),
+        help="Methods to display; legacy groot-* model ids are also accepted",
+    )
     parser.add_argument("--benchmarks", nargs="+", choices=tuple(BENCHMARKS), default=["libero-plus"])
+    parser.add_argument(
+        "--output-root",
+        type=pathlib.Path,
+        default=None,
+        help="Normalized output root (default: <repo>/output)",
+    )
+    parser.add_argument("--run-name", default="default", help="Run name below each suite")
+    parser.add_argument(
+        "--no-legacy-fallback",
+        action="store_true",
+        help="Read only normalized output/eval paths",
+    )
     parser.add_argument("--once", action="store_true", help="Print one snapshot and exit")
     parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
     return parser.parse_args()
 
 
 def _build_snapshot(args: argparse.Namespace, repo_root: pathlib.Path) -> dict:
+    selected_models = [METHOD_TO_MODEL.get(value, value) for value in args.methods]
     return build_snapshot(
         repo_root,
         args.eta_window,
         manifest_path=args.manifest,
-        selected_models=args.models,
+        selected_models=selected_models,
         selected_benchmarks=args.benchmarks,
+        output_root=args.output_root,
+        run_name=args.run_name,
+        legacy_fallback=not args.no_legacy_fallback,
     )
 
 

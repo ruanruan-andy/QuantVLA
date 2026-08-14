@@ -41,30 +41,22 @@ MODELS = OrderedDict(
         (
             "groot-gap-opqd-w4a8",
             {
-                "label": "GR00T N1.5 · GAP-OPQD W4A8",
+                "label": "GR00T N1.5 · QuantVLA-OPQD W4A8",
                 "precision": "W4A8 + PEFT",
-                "quantization_backend": "fake-quant + GAP-OPQD",
-            },
-        ),
-        (
-            "groot-quantvla-w4a8-sqrt",
-            {
-                "label": "GR00T N1.5 · QuantVLA W4A8 · sqrt",
-                "precision": "W4A8 · sqrt",
-                "quantization_backend": "fake-quant + sqrt ATM/OHB",
-            },
-        ),
-        (
-            "groot-quantvla-w4a8-block1",
-            {
-                "label": "GR00T N1.5 · QuantVLA W4A8 · block=1",
-                "precision": "W4A8 · block=1",
-                "quantization_backend": "fake-quant + block=1",
+                "quantization_backend": "fake-quant + OPQD",
             },
         ),
     )
 )
 PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-gap-opqd-w4a8")
+METHOD_TO_MODEL = OrderedDict(
+    (
+        ("fp16", "groot-fp16"),
+        ("quantvla", "groot-quantvla-w4a8"),
+        ("quantvla-opqd", "groot-gap-opqd-w4a8"),
+    )
+)
+MODEL_TO_METHOD = {model: method for method, model in METHOD_TO_MODEL.items()}
 BENCHMARKS = OrderedDict(
     (
         ("libero", {"label": "Standard LIBERO"}),
@@ -192,8 +184,33 @@ def load_effective_records(
     return ordered, malformed, valid_lines - len(ordered)
 
 
+def model_result_dir(
+    repo_root: pathlib.Path,
+    model: str,
+    benchmark: str,
+    suite: str,
+    *,
+    output_root: pathlib.Path | None = None,
+    run_name: str = "default",
+    legacy_fallback: bool = True,
+) -> pathlib.Path:
+    root = (output_root or (repo_root / "output")).resolve()
+    method = MODEL_TO_METHOD.get(model, model)
+    normalized = root / "eval" / benchmark / method / suite / run_name
+    if normalized.exists() or not legacy_fallback:
+        return normalized
+    return repo_root / "output" / benchmark / model / suite
+
+
 def model_episode_paths(
-    repo_root: pathlib.Path, model: str, benchmark: str, suite: str
+    repo_root: pathlib.Path,
+    model: str,
+    benchmark: str,
+    suite: str,
+    *,
+    output_root: pathlib.Path | None = None,
+    run_name: str = "default",
+    legacy_fallback: bool = True,
 ) -> list[pathlib.Path]:
     """Return the direct result file or category-specific result files for a suite.
 
@@ -201,7 +218,15 @@ def model_episode_paths(
     Category-by-category ablations write one file per category below that suite.
     Prefer the direct file so a resumed baseline is never double counted.
     """
-    suite_dir = repo_root / "output" / benchmark / model / suite
+    suite_dir = model_result_dir(
+        repo_root,
+        model,
+        benchmark,
+        suite,
+        output_root=output_root,
+        run_name=run_name,
+        legacy_fallback=legacy_fallback,
+    )
     direct_path = suite_dir / "episodes.jsonl"
     if direct_path.exists():
         return [direct_path]
@@ -250,8 +275,20 @@ def suite_metrics(
     suite: str,
     total: int,
     eta_window: int,
+    *,
+    output_root: pathlib.Path | None = None,
+    run_name: str = "default",
+    legacy_fallback: bool = True,
 ) -> dict[str, Any]:
-    paths = model_episode_paths(repo_root, model, benchmark, suite)
+    paths = model_episode_paths(
+        repo_root,
+        model,
+        benchmark,
+        suite,
+        output_root=output_root,
+        run_name=run_name,
+        legacy_fallback=legacy_fallback,
+    )
     records, malformed, duplicates = load_model_records(paths, benchmark)
     completed_records = [record for record in records if record.get("error") is None]
     error_records = [record for record in records if record.get("error") is not None]
@@ -271,7 +308,15 @@ def suite_metrics(
     attempted = len(records)
     evaluated = len(completed_records)
     low, high = wilson_interval(successes, evaluated)
-    suite_dir = repo_root / "output" / benchmark / model / suite
+    suite_dir = model_result_dir(
+        repo_root,
+        model,
+        benchmark,
+        suite,
+        output_root=output_root,
+        run_name=run_name,
+        legacy_fallback=legacy_fallback,
+    )
     summary_path = suite_dir / "summary.json"
     summary, summary_error = _load_json_object(summary_path)
     summary_completed = None if summary is None else summary.get("completed_episodes")
@@ -346,7 +391,13 @@ def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     total = sum(row["total"] for row in rows)
     successes = sum(row["successes"] for row in rows)
     low, high = wilson_interval(successes, evaluated)
-    etas = [row["eta_seconds"] for row in rows if row["eta_seconds"] is not None]
+    incomplete_rows = [row for row in rows if row["completed"] < row["total"]]
+    if not incomplete_rows:
+        aggregate_eta: float | None = 0.0
+    elif any(row["eta_seconds"] is None for row in incomplete_rows):
+        aggregate_eta = None
+    else:
+        aggregate_eta = max(float(row["eta_seconds"]) for row in incomplete_rows)
     return {
         "completed": completed,
         "evaluated": evaluated,
@@ -359,7 +410,7 @@ def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "errors": sum(row["errors"] for row in rows),
         "malformed_records": sum(row.get("malformed_records", 0) for row in rows),
         "resume_duplicates": sum(row.get("resume_duplicates", 0) for row in rows),
-        "eta_seconds": max(etas) if etas else None,
+        "eta_seconds": aggregate_eta,
         "warnings": [warning for row in rows for warning in row.get("warnings", [])],
     }
 
@@ -570,7 +621,9 @@ def _discover_processes() -> list[dict[str, Any]]:
             continue
         if not tokens:
             continue
-        is_eval = any(token.endswith("run_libero_plus_eval.py") for token in tokens)
+        is_plus_eval = any(token.endswith("run_libero_plus_eval.py") for token in tokens)
+        is_standard_eval = any(token.endswith("run_libero_eval.py") for token in tokens)
+        is_eval = is_plus_eval or is_standard_eval
         is_server = any(token.endswith("scripts/inference_service.py") for token in tokens) and "--server" in tokens
         if not is_eval and not is_server:
             continue
@@ -595,7 +648,9 @@ def _discover_processes() -> list[dict[str, Any]]:
             {
                 "kind": kind,
                 "model": model or "unknown",
-                "benchmark": "libero-plus" if is_eval else "unknown",
+                "benchmark": (
+                    "libero-plus" if is_plus_eval else "libero" if is_standard_eval else "unknown"
+                ),
                 "suite": suite or "unknown",
                 "pid": pid,
                 "gpu": gpu_text or "unknown",
@@ -639,6 +694,7 @@ def _decorate_runtime_states(models: dict[str, Any], runtime: dict[str, Any]) ->
                 eval_alive = any(
                     process["kind"] == "eval"
                     and process["model"] == model
+                    and process["benchmark"] == benchmark
                     and process["suite"] == row["suite"]
                     for process in runtime["processes"]
                 )
@@ -671,6 +727,9 @@ def build_snapshot(
     manifest_path: pathlib.Path | None = None,
     selected_models: tuple[str, ...] | list[str] | None = None,
     selected_benchmarks: tuple[str, ...] | list[str] | None = None,
+    output_root: pathlib.Path | None = None,
+    run_name: str = "default",
+    legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     selected_models = tuple(selected_models or PRIMARY_MODELS)
     selected_benchmarks = tuple(selected_benchmarks or ("libero-plus",))
@@ -694,6 +753,9 @@ def build_snapshot(
                     suite,
                     totals_config[benchmark][suite],
                     eta_window,
+                    output_root=output_root,
+                    run_name=run_name,
+                    legacy_fallback=legacy_fallback,
                 )
                 for suite in SUITES
             ]
@@ -721,6 +783,9 @@ def build_snapshot(
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "repo_root": str(repo_root),
+        "output_root": str((output_root or (repo_root / "output")).resolve()),
+        "run_name": run_name,
+        "legacy_fallback": legacy_fallback,
         "eta_window": eta_window,
         "sample_manifest": load_sample_manifest(repo_root, manifest_path),
         "selected_models": list(selected_models),

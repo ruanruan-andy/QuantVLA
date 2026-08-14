@@ -29,7 +29,7 @@ for ((index=0; index<${#EXTRA_ARGS[@]}; index++)); do
 done
 
 case "$MODEL_VARIANT" in
-    groot-fp16|groot-quantvla-w4a8) ;;
+    groot-fp16|groot-quantvla-w4a8|groot-gap-opqd-w4a8) ;;
     *) echo "Unsupported model variant: $MODEL_VARIANT" >&2; exit 1 ;;
 esac
 if [[ "$MODEL_ARG_PRESENT" == 0 ]]; then

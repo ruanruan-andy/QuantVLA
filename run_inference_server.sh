@@ -24,7 +24,8 @@ if [[ -n "$HF_PROXY" ]]; then
 fi
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 
-# Set model path and data config based on task
+# Set model path and data config based on task. GR00T_MODEL_PATH may point to a
+# local checkpoint or a Hugging Face model id for reproducible comparisons.
 case $TASK in
     libero_spatial)
         MODEL_PATH="youliangtan/gr00t-n1.5-libero-spatial-posttrain"
@@ -52,6 +53,7 @@ case $TASK in
         exit 1
         ;;
 esac
+MODEL_PATH="${GR00T_MODEL_PATH:-$MODEL_PATH}"
 
 # Allow override of denoising steps via environment variable
 DENOISING_STEPS=${GR00T_DENOISING_STEPS:-8}

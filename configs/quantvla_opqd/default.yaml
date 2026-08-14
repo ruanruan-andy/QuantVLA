@@ -1,0 +1,33 @@
+# Reference values for train_quantvla_opqd.sh and scripts/train_gap_opqd.py.
+# The maintained launcher uses CLI arguments; this file records the canonical
+# main-experiment configuration and is not loaded implicitly.
+task_suite_name: libero_spatial
+sample_manifest: configs/libero_plus/first_24_per_category.json
+max_iterations: 100
+rollout_horizon: 16
+num_steps_wait: 10
+initial_state_ids: [0]
+seed: 20260813
+
+denoising_steps: 8
+action_dims: 7
+learning_rate: 5.0e-5
+weight_decay: 0.0
+gradient_clip_norm: 1.0
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.0
+
+temporal_horizon: 4
+temporal_discount: 0.9
+alpha_q: 1.0
+beta_r: 1.0
+weight_min: 1.0
+weight_max: 5.0
+
+lambda_anchor: 0.1
+anchor_replay_size: 256
+anchor_batch_size: 4
+clean_anchor_rollout_horizon: 4
+save_every: 20
+resume: true

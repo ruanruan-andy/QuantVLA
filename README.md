@@ -31,6 +31,31 @@ Jingxuan Zhang<sup>1†</sup>&nbsp;&nbsp;Yunta Hsieh<sup>3†</sup>&nbsp;&nbsp;Z
 <em>Overview of the QuantVLA framework: selective quantization layout + attention temperature matching + output head balancing.</em>
 </div>
 
+## GR00T / LIBERO research workflow
+
+This fork adds LIBERO-Plus evaluation and QuantVLA-OPQD adaptation. The supported
+comparison is intentionally limited to `fp16`, `quantvla`, and
+`quantvla-opqd`; user-facing launchers use a normalized output layout and
+protect existing episode files from accidental overwrite.
+
+| Document | Content |
+|---|---|
+| [FP16 and QuantVLA eval](docs/FP16_QUANTVLA_EVAL_CN.md) | Zero-to-one LIBERO/LIBERO-Plus evaluation |
+| [QuantVLA-OPQD train/eval](docs/QUANTVLA_OPQD_TRAIN_EVAL_CN.md) | Training, resume, checkpoint evaluation |
+| [Method](docs/METHOD_CN.md) | QuantVLA implementation and OPQD objective |
+| [Experiments](docs/EXPERIMENTS_CN.md) | Main matrix, ablations, and result templates |
+
+Primary commands:
+
+```bash
+./eval_fp16.sh --help
+./eval_quantvla.sh --help
+./train_quantvla_opqd.sh --help
+./eval_quantvla_opqd.sh --help
+./monitor_eval.sh --help
+./collect_eval.sh --help
+```
+
 ## Abstract
 
 Vision-language-action (VLA) models unify perception, language, and control for embodied agents but face significant challenges in practical deployment due to rapidly increasing compute and memory demands, especially as models scale to longer horizons and larger backbones. To address these bottlenecks, we introduce QuantVLA, a training-free post-training quantization (PTQ) framework that, to our knowledge, is the first PTQ approach for VLA systems and the first to successfully quantize a diffusion transformer (DiT) action head. QuantVLA incorporates three scale-calibrated components: (1) a selective quantization layout that integerizes all linear layers in both the language backbone and the DiT while keeping attention projections in floating point to preserve the original operator schedule; (2) attention temperature matching, a lightweight per-head scaling mechanism that stabilizes attention logits and is folded into the dequantization scales at inference; and (3) output head balancing, a per-layer residual interface calibration that mitigates post-projection energy drift. The framework requires no additional training, uses only a small unlabeled calibration buffer, and supports integer kernels for low-bit weights and activations while leaving the architecture unchanged. Across representative VLA models on LIBERO, QuantVLA exceeds the task success rates of full-precision baselines, achieves about 70% relative memory savings on the quantized components, providing a practical pathway toward scalable low-bit embodied intelligence under strict compute, memory, and power constraints.

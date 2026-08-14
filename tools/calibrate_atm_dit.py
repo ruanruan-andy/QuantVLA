@@ -105,14 +105,6 @@ def parse_args() -> argparse.Namespace:
         default="dit",
         help="Scope prefix for OHB (default dit).",
     )
-    parser.add_argument(
-        "--sqrt-scaling",
-        action="store_true",
-        help=(
-            "Use sqrt(teacher_std / quant_std) for ATM and "
-            "sqrt(teacher_rms / quant_rms) for OHB."
-        ),
-    )
     return parser.parse_args()
 
 
@@ -283,7 +275,6 @@ def compute_alpha_json(
     min_alpha: float = 0.7,
     max_alpha: float = 1.4,
     neutral_threshold: float = 0.02,  # Lowered from 0.05 to preserve more subtle corrections
-    sqrt_scaling: bool = False,
 ) -> Dict[str, Dict[str, List[float]]]:
     alpha_data: Dict[str, Dict[str, List[float]]] = {}
     for name in sorted(teacher_stats.keys()):
@@ -291,12 +282,9 @@ def compute_alpha_json(
             continue
         teacher_std = teacher_stats[name].to(torch.float32)
         quant_std = quant_stats[name].to(torch.float32)
-        ratio = teacher_std / (quant_std + 1e-6)
-        if sqrt_scaling:
-            ratio = torch.sqrt(ratio)
         alpha = torch.where(
             quant_std > 0,
-            ratio,
+            teacher_std / (quant_std + 1e-6),
             torch.ones_like(teacher_std),
         )
         alpha = alpha.clamp(min_alpha, max_alpha)
@@ -311,7 +299,6 @@ def compute_beta_values(
     *,
     log_clamp: float,
     neutral: float,
-    sqrt_scaling: bool = False,
 ) -> Dict[str, float]:
     beta_map: Dict[str, float] = {}
     for name, teacher_val in teacher_rms.items():
@@ -325,7 +312,7 @@ def compute_beta_values(
         if abs(log_beta) < neutral:
             beta = 1.0
         else:
-            beta = math.exp(0.5 * log_beta) if sqrt_scaling else math.exp(log_beta)
+            beta = math.exp(log_beta)
         beta_map[name] = beta
     return beta_map
 
@@ -412,18 +399,13 @@ def main():
     quant_stats = quant_collector.finalize()
     quant_ohb_stats = quant_ohb_collector.finalize() if quant_ohb_collector else {}
 
-    alpha_json = compute_alpha_json(
-        teacher_stats,
-        quant_stats,
-        sqrt_scaling=args.sqrt_scaling,
-    )
+    alpha_json = compute_alpha_json(teacher_stats, quant_stats)
     if ohb_enabled:
         beta_map = compute_beta_values(
             teacher_ohb_stats,
             quant_ohb_stats,
             log_clamp=args.ohb_log_clamp,
             neutral=args.ohb_neutral,
-            sqrt_scaling=args.sqrt_scaling,
         )
         log_beta_summary(beta_map, args.ohb_log_clamp)
         for name, beta in beta_map.items():

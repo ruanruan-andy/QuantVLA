@@ -14,6 +14,7 @@ from eval_metrics import (
     BENCHMARKS,
     CATEGORY_LABEL,
     CATEGORY_ORDER,
+    METHOD_TO_MODEL,
     MODELS,
     PRIMARY_MODELS,
     build_snapshot,
@@ -358,7 +359,7 @@ def _markdown_comparison(rows: list[dict[str, Any]]) -> str:
         "",
         "`*` means that model/group is incomplete; deltas involving partial groups are descriptive, not final.",
         "",
-        "| Dimension | Name | FP16 | QuantVLA | GAP-OPQD | OPQD-FP16 | OPQD-Quant | Complete |",
+        "| Dimension | Name | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-FP16 | OPQD-Quant | Complete |",
         "|---|---|---:|---:|---:|---:|---:|:---:|",
     ]
     for row in rows:
@@ -383,7 +384,7 @@ def _markdown_matched_comparison(rows: list[dict[str, Any]]) -> str:
         "",
         "Only task IDs with valid episode records in all three models are included.",
         "",
-        "| Dimension | Name | Matched | FP16 | QuantVLA | GAP-OPQD | OPQD-Quant |",
+        "| Dimension | Name | Matched | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-Quant |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
@@ -472,8 +473,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=pathlib.Path, default=None)
     parser.add_argument("--eta-window", type=int, default=10)
     parser.add_argument("--manifest", type=pathlib.Path, default=None)
-    parser.add_argument("--models", nargs="+", choices=tuple(MODELS), default=list(PRIMARY_MODELS))
+    parser.add_argument(
+        "--methods",
+        "--models",
+        dest="methods",
+        nargs="+",
+        choices=tuple(METHOD_TO_MODEL) + tuple(MODELS),
+        default=list(METHOD_TO_MODEL),
+        help="Methods to collect; legacy groot-* model ids are also accepted",
+    )
     parser.add_argument("--benchmarks", nargs="+", choices=tuple(BENCHMARKS), default=["libero-plus"])
+    parser.add_argument(
+        "--output-root",
+        type=pathlib.Path,
+        default=None,
+        help="Normalized output root (default: <repo>/output)",
+    )
+    parser.add_argument("--run-name", default="default", help="Run name below each suite")
+    parser.add_argument(
+        "--no-legacy-fallback",
+        action="store_true",
+        help="Read only normalized output/eval paths",
+    )
     parser.add_argument(
         "--require-complete",
         action="store_true",
@@ -485,13 +506,20 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     repo_root = args.repo_root.resolve()
-    output_dir = (args.output_dir or (repo_root / "output" / "summary")).resolve()
+    output_root = (args.output_root or (repo_root / "output")).resolve()
+    output_dir = (
+        args.output_dir or (output_root / "reports" / args.run_name)
+    ).resolve()
+    selected_models = [METHOD_TO_MODEL.get(value, value) for value in args.methods]
     snapshot = build_snapshot(
         repo_root,
         args.eta_window,
         manifest_path=args.manifest,
-        selected_models=args.models,
+        selected_models=selected_models,
         selected_benchmarks=args.benchmarks,
+        output_root=output_root,
+        run_name=args.run_name,
+        legacy_fallback=not args.no_legacy_fallback,
     )
     partial = any(
         total["completed"] < total["total"]
@@ -521,6 +549,8 @@ def main() -> None:
     clean_summary = {
         "generated_at": snapshot["generated_at"],
         "repo_root": snapshot["repo_root"],
+        "output_root": snapshot["output_root"],
+        "run_name": snapshot["run_name"],
         "sample_manifest": snapshot["sample_manifest"],
         "partial": partial,
         "inconsistent": inconsistent,
@@ -598,7 +628,7 @@ def main() -> None:
 
     report = "\n\n".join(
         [
-            "# GR00T FP16 vs QuantVLA vs GAP-OPQD Evaluation Report",
+            "# GR00T FP16 vs QuantVLA vs QuantVLA-OPQD Evaluation Report",
             _technical_summary(snapshot, partial, inconsistent),
             _scope_and_definitions(snapshot),
             "## Results by model",
