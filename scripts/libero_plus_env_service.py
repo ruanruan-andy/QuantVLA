@@ -27,7 +27,7 @@ SUPPORTED_SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10
 @dataclass
 class ServiceConfig:
     task_suite_name: str = "libero_spatial"
-    sample_manifest: str = "configs/libero_plus/splits/train560-split2026.json"
+    sample_manifest: str = "configs/libero_plus/shared560-first20.json"
     host: str = "127.0.0.1"
     port: int = 5590
 
@@ -91,7 +91,7 @@ class LiberoPlusService:
         if suite != self.config.task_suite_name:
             raise ValueError(f"service is configured for {self.config.task_suite_name}, got {suite}")
         if task_id not in self.selected_ids:
-            raise ValueError(f"task ID {task_id} is outside the configured OOD calibration split")
+            raise ValueError(f"task ID {task_id} is outside the configured shared manifest")
         if self.env is not None:
             self.env.close()
             self.env = None

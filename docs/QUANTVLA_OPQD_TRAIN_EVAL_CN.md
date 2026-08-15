@@ -1,12 +1,12 @@
 # QuantVLA-OPQD：从零开始 Train 与 Eval
 
-OPQD 是唯一需要训练的方法：使用 LIBERO-Plus Train-560 做 student-on-policy rollout，只在不相交的 Test-560 上正式评测。
+OPQD 是唯一需要训练的方法：在 LIBERO-Plus Shared-560 first-20 上做 student-on-policy rollout，并在相同 task IDs 上评测三种方法。这是 same-task transductive adaptation，不是 held-out-task generalization。
 
 ## 1. 正式配置
 
 | 项目 | 默认值 |
 |---|---|
-| train / test | Train-560 / Test-560，task ID 无交集 |
+| train / eval | Shared-560 first-20，task IDs 完全相同 |
 | 每 suite | 7 类 × 20 = 140 episodes |
 | horizon | spatial 220 / object 280 / goal 300 / libero_10 520；成功即结束 |
 | 状态选择 | 4 phases × (2 priority + 2 random) = 16 |
@@ -15,7 +15,7 @@ OPQD 是唯一需要训练的方法：使用 LIBERO-Plus Train-560 做 student-o
 | LoRA | action-head Q/K/V，rank 16，alpha 32，dropout 0.05 |
 | seed | 先跑 0，正式结果补 1、2 |
 
-selector 不跨阶段补位、不重复；每个有效 episode 必须得到 16 个状态。`metrics.jsonl` 和 monitor 会显示 `selection_valid`、各阶段数量及实际 gap。
+selector 不跨阶段补位、不重复；每个有效 episode 必须得到 16 个状态。`metrics.jsonl` 和 monitor 会显示 `selection_valid`、各阶段数量及实际 gap。train/eval 均记录 manifest SHA256，正式比较前必须一致。
 
 ## 2. 环境检查与 dry-run
 
@@ -37,7 +37,7 @@ ss -ltnp | grep -E ':31000|:31001' || true
 ./train_quantvla_opqd.sh \
   --suite libero_spatial --gpu 0 \
   --env-port 31000 --clean-env-port 31001 \
-  --manifest configs/libero_plus/splits/train560-split2026.json \
+  --manifest configs/libero_plus/shared560-first20.json \
   --seed 0 --episodes 140 --updates-per-episode 5 \
   --save-every-steps 70 --keep-last-checkpoints 2
 ```
@@ -47,7 +47,7 @@ ss -ltnp | grep -E ':31000|:31001' || true
 默认输出：
 
 ```text
-output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/<suite>/
+output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/<suite>/
 ├── run.json
 ├── status.json
 ├── metrics.jsonl
@@ -75,7 +75,7 @@ done
 ```bash
 ./monitor_eval.sh --once --opqd-train-seed 0
 tmux ls
-tail -f output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/logs/train.log
+tail -f output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_spatial/logs/train.log
 ```
 
 ## 5. 断点恢复
@@ -83,25 +83,25 @@ tail -f output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_
 ```bash
 ./train_quantvla_opqd.sh --suite libero_spatial --gpu 0 \
   --env-port 31000 --clean-env-port 31001 --seed 0 \
-  --resume-from output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/checkpoints/step-000630
+  --resume-from output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_spatial/checkpoints/step-000630
 ```
 
 suite、seed、manifest 和关键超参必须一致；程序恢复 adapter、optimizer、scheduler、RNG 与 task schedule。
 
-## 6. 评测 adapte
+## 6. 评测 adapter
 
 ```bash
 ./eval_quantvla_opqd.sh \
   --benchmark libero-plus --suite libero_spatial \
   --gpu 4 --port 31240 \
-  --checkpoint output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/checkpoints/step-000700 \
+  --checkpoint output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_spatial/checkpoints/step-000700 \
   --train-seed 0 --eval-seed 2026
 ```
 
 默认输出：
 
 ```text
-output/eval/libero-plus/test560-split2026/opqd-v2-s16/seed-000/<suite>/
+output/eval/libero-plus/shared560-first20/opqd-v2-s16/seed-000/<suite>/
 ├── run.json
 ├── metrics/{episodes.jsonl,summary.json}
 ├── logs/{server.log,pipeline.log,evaluator.log}

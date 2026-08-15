@@ -5,8 +5,9 @@
 | 项目 | 设置 |
 |---|---|
 | Methods | FP16、QuantVLA W4A8、QuantVLA-OPQD |
-| Train | OPQD only；Train-560；每 suite 140 episodes |
-| Test | Test-560；每 suite/category 20；总计 560/method/seed |
+| Target tasks | Shared-560 first-20；每 suite/category 20；总计 560 |
+| Train | OPQD only；与 eval 共用 task IDs；每 suite 140 episodes |
+| Eval | 三种方法均在 Shared-560 上各跑 560 episodes |
 | Horizons | spatial 220 / object 280 / goal 300 / libero_10 520 |
 | Eval seed | 2026，所有方法固定 |
 | Train seeds | 0、1、2 |
@@ -14,7 +15,7 @@
 | Breakdown | suite、7 categories、difficulty |
 | Uncertainty | 95% Wilson CI；同时报告 numerator/denominator |
 
-不得用 Test-560 选超参或 checkpoint。当前没有 validation：主结果使用固定 700-step final checkpoint；如以后需要选 checkpoint，应从 Train-560 再切独立 validation，并锁定后只评一次 Test-560。
+这是 same-task transductive adaptation，不得表述为 held-out-task generalization。当前没有 validation：主结果使用固定 700-step final checkpoint，不按 Shared-560 eval success 选 checkpoint；如以后需要调参，应另建独立 development manifest。
 
 ## 2. 主结果表
 
@@ -38,7 +39,7 @@
 
 ## 3. 必做消融
 
-除目标变量外保持 Train-560、seed、horizon、总计 700 optimizer steps 与 Test-560 不变。
+除目标变量外保持 Shared-560、seed、horizon、总计 700 optimizer steps 与 eval seed 2026 不变。
 
 | ID | 变量 | 候选值 | 回答的问题 | 优先级 |
 |---|---|---|---|---|
@@ -68,11 +69,11 @@
 
 | 阶段 | 机器 | GPU | 任务 |
 |---|---|---|---|
-| 1 | suzhou-C | 0–3 | OPQD seed 0，Train-560 四 suite |
-| 1 | suzhou-C | 4–7 | FP16 Test-560，四 suite eval |
-| 1 | suzhou-I | 0–3 | QuantVLA Test-560，四 suite eval |
+| 1 | suzhou-C | 0–3 | OPQD seed 0，Shared-560 四 suite |
+| 1 | suzhou-C | 4–7 | FP16 Shared-560，四 suite eval |
+| 1 | suzhou-I | 0–3 | QuantVLA Shared-560，四 suite eval |
 | 2 | suzhou-C/I | 空闲卡 | OPQD seed 1/2 train |
-| 3 | 任一空闲机 | 4 cards | OPQD checkpoints Test-560 eval |
+| 3 | 任一空闲机 | 4 cards | OPQD checkpoints Shared-560 eval |
 
 所有启动前重新检查 GPU、端口和现有进程。smoke 输出必须放在 `output/smoke/`，正式结果只能使用规范目录。
 
@@ -84,4 +85,4 @@
 | YYYY-MM-DD | suzhou-C:4 | FP16 eval | 2026 | spatial | 31100 | `output/eval/...` | planned |
 | YYYY-MM-DD | suzhou-I:0 | Quant eval | 2026 | spatial | 31200 | `output/eval/...` | planned |
 
-完整性判定：每个 method/seed 必须达到 manifest 规定数量、无重复 episode key、无 error、四 suite 和七 category 均齐全。只有 `./collect_eval.sh --require-complete` 通过后才能填写最终表格。
+完整性判定：每个 method/seed 必须达到 manifest 规定数量、无重复 episode key、无 error、四 suite 和七 category 均齐全；OPQD train/eval 的 manifest SHA256 还必须完全一致。只有 `./collect_eval.sh --require-complete` 通过后才能填写最终表格。

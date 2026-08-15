@@ -1,4 +1,4 @@
-"""Train QuantVLA-OPQD v2 on disjoint LIBERO-Plus trajectories.
+"""Train QuantVLA-OPQD v2 on shared first-20 LIBERO-Plus trajectories.
 
 The simulator runs in a separate ``libero_test`` process, while this trainer
 stays in ``groot_test``.  The simulator rollout is non-differentiable; frozen
@@ -65,8 +65,8 @@ SUITE_EPISODE_HORIZONS = {
 @dataclass
 class TrainConfig:
     task_suite_name: str = "libero_spatial"
-    output_dir: str = "output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial"
-    sample_manifest: str = "configs/libero_plus/splits/train560-split2026.json"
+    output_dir: str = "output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_spatial"
+    sample_manifest: str = "configs/libero_plus/shared560-first20.json"
     num_rollout_episodes: int = 140
     episode_horizon: int | None = None
     updates_per_episode: int = 5
@@ -161,22 +161,22 @@ class CachedState:
     backbone_output: BatchFeature
     action_input: BatchFeature
     initial_noise: torch.Tensor
-    teacher_action: torch.Tenso
+    teacher_action: torch.Tensor
 
 
 @dataclass
 class ScoredStep:
     policy_observation: dict[str, Any]
-    initial_noise: torch.Tenso
-    teacher_action: torch.Tenso
-    student_action: torch.Tenso
+    initial_noise: torch.Tensor
+    teacher_action: torch.Tensor
+    student_action: torch.Tensor
 
 
 @dataclass
 class RolloutTrace:
     steps: list[ScoredStep]
     success: bool
-    termination_reason: st
+    termination_reason: str
 
 
 class IIDEnvClient:
@@ -601,7 +601,7 @@ def _save_checkpoint(
         checkpoint_dir / "trainer_state.pt"
     ).is_file():
         raise RuntimeError(f"incomplete checkpoint: {checkpoint_dir}")
-    return checkpoint_di
+    return checkpoint_dir
 
 
 def _checkpoint_step(path: Path) -> int | None:
@@ -734,7 +734,7 @@ def train(config: TrainConfig) -> None:
     run_metadata = {
         "schema_version": 2,
         "method": "quantvla-opqd-v2",
-        "variant": "phase-local-s16",
+        "variant": "phase-local-s16-shared560-first20",
         "suite": config.task_suite_name,
         "seed": config.seed,
         "host": socket.gethostname(),
@@ -803,7 +803,7 @@ def train(config: TrainConfig) -> None:
         run_metadata["train_task_count"] = len(primary_task_ids)
         run_path.write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
         print(
-            f"Loaded OOD calibration split: {len(primary_task_ids)} tasks from "
+            f"Loaded shared train/eval manifest: {len(primary_task_ids)} tasks from "
             f"{Path(config.sample_manifest).resolve()}"
         )
 
@@ -1035,7 +1035,7 @@ def train(config: TrainConfig) -> None:
                     "optimizer_step": optimizer_step,
                     "suite": config.task_suite_name,
                     "method": "quantvla-opqd-v2",
-                    "domain": "libero_plus_disjoint_train",
+                    "domain": "libero_plus_shared_first20_adaptation",
                     "task_id": task_id,
                     "category": category_by_task_id[task_id],
                     "initial_state_id": initial_state_id,

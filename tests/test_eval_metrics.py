@@ -148,7 +148,7 @@ class EvalMetricsTest(unittest.TestCase):
                 output_root
                 / "eval"
                 / "libero-plus"
-                / "test560-split2026"
+                / "shared560-first20"
                 / "fp16"
                 / "libero_spatial"
                 / "paper-v1"

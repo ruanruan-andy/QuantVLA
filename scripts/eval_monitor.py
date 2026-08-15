@@ -84,7 +84,11 @@ def _state(total: dict[str, Any]) -> Text:
 
 
 def _overview(snapshot: dict[str, Any]) -> Table:
-    table = Table(title="LIBERO-Plus Test-560", box=box.SIMPLE_HEAVY, pad_edge=False)
+    table = Table(
+        title="LIBERO-Plus Shared-560 · same-task adaptation",
+        box=box.SIMPLE_HEAVY,
+        pad_edge=False,
+    )
     table.add_column("Method", style="bold")
     table.add_column("State")
     table.add_column("Progress", justify="right")
@@ -196,7 +200,7 @@ def _training_table(output_root: pathlib.Path, seed: int) -> Table:
         output_root
         / "train"
         / "libero-plus"
-        / "opqd-v2-s16-train560-split2026"
+        / "opqd-v2-s16-shared560-first20"
         / f"seed-{seed:03d}"
     )
     now = time.time()
@@ -254,7 +258,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--manifest",
         type=pathlib.Path,
-        default=pathlib.Path("configs/libero_plus/splits/test560-split2026.json"),
+        default=pathlib.Path("configs/libero_plus/shared560-first20.json"),
     )
     parser.add_argument("--opqd-train-seed", type=int, default=0)
     parser.add_argument("--run-name", default="default")

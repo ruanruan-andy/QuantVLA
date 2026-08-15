@@ -1,6 +1,6 @@
 # FP16 与 QuantVLA：从零开始 Eval
 
-`fp16` 与 `quantvla` 都不训练。正式协议为 LIBERO-Plus Test-560：每个 suite 七类各 20 条，共 140；四个 suite 共 560，方法间固定相同任务、初始状态和 eval seed。
+`fp16` 与 `quantvla` 都不训练。正式协议为 LIBERO-Plus Shared-560 first-20：每个 suite/category 按 task index 取前 20 条，共 140/suite、560/method；它与 OPQD train 共用 task IDs。三种方法固定相同任务、initial state 0 和 eval seed 2026。
 
 ## 1. 环境检查
 
@@ -15,7 +15,7 @@ ss -ltnp | grep -E ':31100|:31200' || true
 ./eval_quantvla.sh --help
 ```
 
-默认 manifest 为 `configs/libero_plus/splits/test560-split2026.json`，与 Train-560 task ID 无交集。
+默认 manifest 为 `configs/libero_plus/shared560-first20.json`。这是 same-task transductive adaptation，不是 held-out-task generalization。
 
 ## 2. dry-run
 
@@ -34,19 +34,19 @@ dry-run 不启动服务、不创建结果。
 ```bash
 ./eval_fp16.sh --benchmark libero-plus --suite libero_spatial \
   --gpu 0 --port 31100 \
-  --manifest configs/libero_plus/splits/test560-split2026.json \
+  --manifest configs/libero_plus/shared560-first20.json \
   --eval-seed 2026
 
 ./eval_quantvla.sh --benchmark libero-plus --suite libero_spatial \
   --gpu 0 --port 31200 \
-  --manifest configs/libero_plus/splits/test560-split2026.json \
+  --manifest configs/libero_plus/shared560-first20.json \
   --eval-seed 2026
 ```
 
 默认输出：
 
 ```text
-output/eval/libero-plus/test560-split2026/{fp16|quantvla}/<suite>/
+output/eval/libero-plus/shared560-first20/{fp16|quantvla}/<suite>/
 ├── run.json
 ├── metrics/
 │   ├── episodes.jsonl
@@ -112,9 +112,9 @@ done
 ./collect_eval.sh --require-complete
 ```
 
-monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与 `4 suite × 7 category`。seed 0 报告默认写到 `output/reports/libero-plus/test560-split2026/opqd-seed-000/`。
+monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与 `4 suite × 7 category`。seed 0 报告默认写到 `output/reports/libero-plus/shared560-first20/opqd-seed-000/`。
 
 ```bash
-tail -n 80 output/eval/libero-plus/test560-split2026/fp16/libero_spatial/logs/server.log
-tail -n 80 output/eval/libero-plus/test560-split2026/fp16/libero_spatial/logs/pipeline.log
+tail -n 80 output/eval/libero-plus/shared560-first20/fp16/libero_spatial/logs/server.log
+tail -n 80 output/eval/libero-plus/shared560-first20/fp16/libero_spatial/logs/pipeline.log
 ```

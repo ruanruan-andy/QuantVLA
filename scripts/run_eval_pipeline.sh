@@ -20,7 +20,7 @@ Required/primary options:
   --output-root PATH     root for normalized outputs (default: ./output)
   --output-dir PATH      exact eval directory; overrides output-root/run-name
   --run-name NAME        optional final output component (default: none)
-  --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter di
+  --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter dir
   --eval-seed N          fixed policy sampling seed (default: 2026)
   --train-seed N         OPQD train seed used in output naming
 
@@ -58,7 +58,7 @@ OUTPUT_ROOT="$REPO_ROOT/output"
 OUTPUT_DIR=""
 RUN_NAME=""
 CHECKPOINT=""
-MANIFEST="$REPO_ROOT/configs/libero_plus/splits/test560-split2026.json"
+MANIFEST="$REPO_ROOT/configs/libero_plus/shared560-first20.json"
 EVAL_SEED="2026"
 TRAIN_SEED=""
 RESUME=0
@@ -110,7 +110,7 @@ if [[ -z "$OUTPUT_DIR" ]]; then
     if [[ "$BENCHMARK" == "libero-plus" ]]; then
         METHOD_OUTPUT="$METHOD"
         [[ "$METHOD" == "quantvla-opqd" ]] && METHOD_OUTPUT="opqd-v2-s16/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
-        OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/test560-split2026/$METHOD_OUTPUT/$SUITE"
+        OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/shared560-first20/$METHOD_OUTPUT/$SUITE"
     else
         OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE"
     fi

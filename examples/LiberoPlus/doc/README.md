@@ -7,12 +7,14 @@
 - `docs/METHOD_CN.md`：当前方法定义；
 - `docs/EXPERIMENTS_CN.md`：正式实验矩阵与记录表。
 
-正式划分：
+正式协议：
 
 ```text
-Train-560: configs/libero_plus/splits/train560-split2026.json
-Test-560:  configs/libero_plus/splits/test560-split2026.json
+Shared-560: configs/libero_plus/shared560-first20.json
+每个 suite/category 取 task index 最小的 20 条；train 与 eval 共用 task IDs。
 ```
+
+这是 same-task transductive adaptation，不是 held-out-task generalization。
 
 最短入口：
 

@@ -40,7 +40,7 @@ if [[ "$MODEL_ARG_PRESENT" == 0 ]]; then
     EXTRA_ARGS+=(--model-variant "$MODEL_VARIANT")
 fi
 if [[ "$SAMPLE_ARG_PRESENT" == 0 ]]; then
-    EXTRA_ARGS+=(--sample-manifest "$REPO_ROOT/configs/libero_plus/splits/test560-split2026.json")
+    EXTRA_ARGS+=(--sample-manifest "$REPO_ROOT/configs/libero_plus/shared560-first20.json")
 fi
 
 if [[ ! -d "$LIBERO_PLUS_ROOT/libero/libero/assets" ]]; then

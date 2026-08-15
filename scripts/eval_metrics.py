@@ -13,7 +13,7 @@ from typing import Any
 
 
 SUITES = ("libero_spatial", "libero_goal", "libero_object", "libero_10")
-DEFAULT_PLUS_MANIFEST = pathlib.Path("configs/libero_plus/splits/test560-split2026.json")
+DEFAULT_PLUS_MANIFEST = pathlib.Path("configs/libero_plus/shared560-first20.json")
 DISPLAY_SUITE = {
     "libero_spatial": "spatial",
     "libero_goal": "goal",
@@ -60,7 +60,7 @@ MODEL_TO_METHOD = {model: method for method, model in METHOD_TO_MODEL.items()}
 BENCHMARKS = OrderedDict(
     (
         ("libero", {"label": "Standard LIBERO"}),
-        ("libero-plus", {"label": "LIBERO-Plus · stratified subset"}),
+        ("libero-plus", {"label": "LIBERO-Plus · Shared-560 first-20"}),
     )
 )
 CATEGORY_ORDER = (
@@ -207,7 +207,7 @@ def model_result_dir(
             root
             / "eval"
             / "libero-plus"
-            / "test560-split2026"
+            / "shared560-first20"
             / method_path
             / suite
         )

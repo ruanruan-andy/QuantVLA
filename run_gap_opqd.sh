@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Train OPQD-v2 on a disjoint LIBERO-Plus manifest.
+# Train OPQD-v2 on the shared first-20 LIBERO-Plus manifest.
 # Usage: CUDA_VISIBLE_DEVICES=0 ./run_gap_opqd.sh libero_spatial [extra tyro args]
 
 TASK="${1:-libero_spatial}"
@@ -12,7 +12,7 @@ LIBERO_ROOT="${LIBERO_ROOT:-/lumos-vePFS/suda/ruan/LIBERO}"
 LIBERO_PLUS_ROOT="${LIBERO_PLUS_ROOT:-/lumos-vePFS/suda/ruan/LIBERO-plus}"
 CLEAN_LIBERO_CONFIG_PATH="${CLEAN_LIBERO_CONFIG_PATH:-/root/.libero}"
 LIBERO_PLUS_CONFIG_PATH="${LIBERO_PLUS_CONFIG_PATH:-$REPO_ROOT/configs/libero_plus}"
-SAMPLE_MANIFEST="${GAP_OPQD_SAMPLE_MANIFEST:-$REPO_ROOT/configs/libero_plus/splits/train560-split2026.json}"
+SAMPLE_MANIFEST="${GAP_OPQD_SAMPLE_MANIFEST:-$REPO_ROOT/configs/libero_plus/shared560-first20.json}"
 OOD_ENV_PORT="${GAP_OPQD_ENV_PORT:-5590}"
 CLEAN_ENV_PORT="${GAP_OPQD_CLEAN_ENV_PORT:-5591}"
 
@@ -21,10 +21,10 @@ case "$TASK" in
     *) echo "Unsupported clean LIBERO suite: $TASK" >&2; exit 1 ;;
 esac
 
-OUTPUT_DIR="${GAP_OPQD_OUTPUT_DIR:-$REPO_ROOT/output/train/libero-plus/opqd-v2-s16/$TASK}"
+OUTPUT_DIR="${GAP_OPQD_OUTPUT_DIR:-$REPO_ROOT/output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/$TASK}"
 mkdir -p "$OUTPUT_DIR/logs"
 
-# Disjoint training environment. Test-560 is never loaded by this process.
+# OPQD adaptation environment. Train and eval intentionally share the same task IDs.
 (
     source "$CONDA_SH"
     conda activate libero_test

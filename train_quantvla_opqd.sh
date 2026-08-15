@@ -6,7 +6,7 @@ source "$REPO_ROOT/scripts/experiment_common.sh"
 
 usage() {
     cat <<'EOF'
-Train the QuantVLA-OPQD v2 LoRA adapter on the disjoint Train-560 split.
+Train the QuantVLA-OPQD v2 LoRA adapter on Shared-560 first-20 tasks.
 
 Options:
   --suite NAME              suite to train (default: libero_spatial)
@@ -39,7 +39,7 @@ CLEAN_ENV_PORT="5591"
 OUTPUT_ROOT="$REPO_ROOT/output"
 OUTPUT_DIR=""
 RUN_NAME=""
-MANIFEST="$REPO_ROOT/configs/libero_plus/splits/train560-split2026.json"
+MANIFEST="$REPO_ROOT/configs/libero_plus/shared560-first20.json"
 RESUME_FROM=""
 SEED="0"
 EPISODES="140"
@@ -97,7 +97,7 @@ fi
 
 OUTPUT_ROOT="$(quantvla_abs_path "$OUTPUT_ROOT")"
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$OUTPUT_ROOT/train/libero-plus/opqd-v2-s16-train560-split2026/seed-$(printf '%03d' "$SEED")/$SUITE"
+    OUTPUT_DIR="$OUTPUT_ROOT/train/libero-plus/opqd-v2-s16-shared560-first20/seed-$(printf '%03d' "$SEED")/$SUITE"
     [[ -z "$RUN_NAME" ]] || OUTPUT_DIR="$OUTPUT_DIR/$RUN_NAME"
 else
     OUTPUT_DIR="$(quantvla_abs_path "$OUTPUT_DIR")"

@@ -38,9 +38,11 @@ comparison is intentionally limited to `fp16`, `quantvla`, and
 `quantvla-opqd`; user-facing launchers use a normalized output layout and
 protect existing episode files from accidental overwrite.
 
-The formal protocol uses equally sized, disjoint LIBERO-Plus manifests: Train-560 for OPQD
-adaptation and Test-560 for all three methods. OPQD uses full student-executed
-episodes and selects 16 phase-balanced states per episode.
+The formal protocol uses one Shared-560 manifest: the first 20 tasks in every
+suite/category pair are used by OPQD adaptation and by all three evaluations.
+This is a same-task, transductive adaptation study rather than held-out-task
+generalization. OPQD uses full student-executed episodes and selects 16
+phase-balanced states per episode.
 
 | Document | Content |
 |---|---|

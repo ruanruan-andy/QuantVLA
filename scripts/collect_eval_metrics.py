@@ -475,7 +475,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--manifest",
         type=pathlib.Path,
-        default=pathlib.Path("configs/libero_plus/splits/test560-split2026.json"),
+        default=pathlib.Path("configs/libero_plus/shared560-first20.json"),
     )
     parser.add_argument(
         "--methods",
@@ -518,7 +518,7 @@ def main() -> None:
         output_root
         / "reports"
         / "libero-plus"
-        / "test560-split2026"
+        / "shared560-first20"
         / f"opqd-seed-{args.opqd_train_seed:03d}"
     )
     if args.run_name not in ("", "default"):

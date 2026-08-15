@@ -1,6 +1,6 @@
-# Canonical OPQD-v2 Train-560 configuration. CLI flags may override values.
+# Canonical OPQD-v2 Shared-560 first-20 configuration. CLI flags may override values.
 task_suite_name: libero_spatial
-sample_manifest: configs/libero_plus/splits/train560-split2026.json
+sample_manifest: configs/libero_plus/shared560-first20.json
 num_rollout_episodes: 140
 episode_horizon: null  # suite defaults: 220/280/300/520
 updates_per_episode: 5
