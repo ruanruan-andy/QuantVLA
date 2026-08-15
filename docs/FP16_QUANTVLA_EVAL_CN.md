@@ -112,7 +112,7 @@ done
 ./collect_eval.sh --require-complete
 ```
 
-monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与 `4 suite × 7 category`。seed 0 报告默认写到 `output/reports/libero-plus/shared560-first20/opqd-seed-000/`。
+monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与七分类；表格底部 `Avg` 区块按分类跨四个 suite 累计 successes/evaluated，所有成功率保留一位小数。seed 0 报告默认写到 `output/reports/libero-plus/shared560-first20/opqd-seed-000/`。
 
 ```bash
 tail -n 80 output/eval/libero-plus/shared560-first20/fp16/libero_spatial/logs/server.log

@@ -69,8 +69,23 @@ def _category_cell(row: dict[str, Any]) -> Text:
     completed = int(row.get("completed", 0))
     evaluated = int(row.get("evaluated", completed))
     rate = row.get("success_rate")
-    rate_text = "—" if rate is None else f"{100 * rate:.0f}%"
+    rate_text = "—" if rate is None else f"{100 * rate:.1f}%"
     return _success_text(rate, evaluated, f"{rate_text}({completed})")
+
+
+def _category_average_cell(rows: list[dict[str, Any]]) -> Text:
+    """Return the micro-average across categories with compact progress."""
+    completed = sum(int(row.get("completed", 0)) for row in rows)
+    evaluated = sum(int(row.get("evaluated", row.get("completed", 0))) for row in rows)
+    successes = sum(int(row.get("successes", 0)) for row in rows)
+    rate = successes / evaluated if evaluated else None
+    return _category_cell(
+        {
+            "completed": completed,
+            "evaluated": evaluated,
+            "success_rate": rate,
+        }
+    )
 
 
 def _state(total: dict[str, Any]) -> Text:
@@ -158,6 +173,18 @@ def _suite_category_table(snapshot: dict[str, Any]) -> Table:
                     for category in CATEGORY_ORDER
                 ],
             )
+    table.add_section()
+    for method_index, (model, label) in enumerate(METHODS):
+        table.add_row(
+            "Avg" if method_index == 0 else "",
+            label,
+            *[
+                _category_average_cell(
+                    [indexed[model][suite, category] for suite in DISPLAY_SUITE]
+                )
+                for category in CATEGORY_ORDER
+            ],
+        )
     return table
 
 
