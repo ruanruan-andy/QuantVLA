@@ -164,12 +164,31 @@ def _load_status(path: pathlib.Path) -> dict[str, Any] | None:
         return None
 
 
+def _selection_cell(status: dict[str, Any]) -> Text:
+    valid = status.get("selection_valid")
+    count = int(status.get("selected_state_count", 0))
+    if valid is None:
+        return Text("—", style="dim")
+    return Text(f"{count}/16 {'OK' if valid else 'ERR'}", style="green" if valid else "bold red")
+
+
+def _gap_cell(status: dict[str, Any]) -> Text:
+    gaps = status.get("phase_effective_gaps")
+    if not gaps:
+        return Text("—", style="dim")
+    target = int(status.get("target_min_gap", 4))
+    relaxed = any(int(gap) < target for gap in gaps)
+    return Text("/".join(map(str, gaps)), style="yellow" if relaxed else "green")
+
+
 def _training_table(output_root: pathlib.Path, seed: int) -> Table:
     table = Table(title=f"OPQD-v2 train seed {seed}", box=box.SIMPLE, pad_edge=False)
     table.add_column("Suite")
     table.add_column("State")
     table.add_column("Episode", justify="right")
     table.add_column("Step", justify="right")
+    table.add_column("Select", justify="right")
+    table.add_column("Gap", justify="right")
     table.add_column("Last success", justify="right")
     table.add_column("ETA", justify="right")
     table.add_column("Heartbeat", justify="right")
@@ -177,16 +196,19 @@ def _training_table(output_root: pathlib.Path, seed: int) -> Table:
         output_root
         / "train"
         / "libero-plus"
-        / "opqd-v2-train560-split2026"
+        / "opqd-v2-s16-train560-split2026"
         / f"seed-{seed:03d}"
     )
     now = time.time()
     for suite in DISPLAY_SUITE:
-        candidates = sorted((base / suite).glob("*/status.json"))
+        suite_root = base / suite
+        candidates = [path for path in [suite_root / "status.json"] if path.is_file()]
+        candidates.extend(suite_root.glob("*/status.json"))
+        candidates.sort(key=lambda path: path.stat().st_mtime)
         status = _load_status(candidates[-1]) if candidates else None
         if status is None:
             table.add_row(
-                DISPLAY_SUITE[suite], "WAIT", "0/140", "0/700", "—", "—", "—"
+                DISPLAY_SUITE[suite], "WAIT", "0/140", "0/700", "—", "—", "—", "—", "—"
             )
             continue
         age = max(0.0, now - float(status.get("updated_at", now)))
@@ -196,6 +218,8 @@ def _training_table(output_root: pathlib.Path, seed: int) -> Table:
             str(status.get("status", "unknown")).upper(),
             f'{status.get("episode", 0)}/{status.get("episodes_total", 140)}',
             f'{status.get("optimizer_step", 0)}/{status.get("optimizer_steps_total", 700)}',
+            _selection_cell(status),
+            _gap_cell(status),
             "—" if last_success is None else ("yes" if last_success else "no"),
             format_duration(status.get("eta_seconds")),
             format_duration(age),

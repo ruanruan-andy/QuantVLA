@@ -1,21 +1,21 @@
 # QuantVLA-OPQD：从零开始 Train 与 Eval
 
-OPQD 是唯一需要训练的方法。默认使用 LIBERO-Plus Train-560 在线 rollout 训练，并只在等量且不相交的 Test-560 上做正式评测。
+OPQD 是唯一需要训练的方法：使用 LIBERO-Plus Train-560 做 student-on-policy rollout，只在不相交的 Test-560 上正式评测。
 
-## 1. 正式默认值
+## 1. 正式配置
 
 | 项目 | 默认值 |
 |---|---|
-| train / test | Train-560 / Test-560，各 560 条且 task ID 无交集 |
-| 每 suite 训练 | 7 类 × 20 条 = 140 episodes |
-| episode horizon | spatial 220，object 280，goal 300，libero_10 520 |
-| 状态选择 | 4 phases × (4 priority + 4 random) = 32 |
-| `min_temporal_gap` | 4 timesteps |
-| 更新 | 5 updates/episode，共 700 optimizer steps/suite |
+| train / test | Train-560 / Test-560，task ID 无交集 |
+| 每 suite | 7 类 × 20 = 140 episodes |
+| horizon | spatial 220 / object 280 / goal 300 / libero_10 520；成功即结束 |
+| 状态选择 | 4 phases × (2 priority + 2 random) = 16 |
+| 时间间隔 | 每阶段目标 gap 4，不足时只在该阶段按 4→3→2→1 补齐固定配额 |
+| 更新 | 5 updates/episode，700 optimizer steps/suite |
 | LoRA | action-head Q/K/V，rank 16，alpha 32，dropout 0.05 |
 | seed | 先跑 0，正式结果补 1、2 |
 
-`min_temporal_gap=4` 表示任意两个已选 timestep 的距离至少为 4；例如选中 10 后，11–13 不再选，14 可以选。短轨迹无法满足 32 个状态时会保留唯一状态、放宽 gap，并写入 `selection_gap_relaxed=true`。
+selector 不跨阶段补位、不重复；每个有效 episode 必须得到 16 个状态。`metrics.jsonl` 和 monitor 会显示 `selection_valid`、各阶段数量及实际 gap。
 
 ## 2. 环境检查与 dry-run
 
@@ -31,39 +31,36 @@ ss -ltnp | grep -E ':31000|:31001' || true
   --env-port 31000 --clean-env-port 31001 --seed 0 --dry-run
 ```
 
-## 3. 单个 suite 训练
+## 3. 训练一个 suite
 
 ```bash
 ./train_quantvla_opqd.sh \
-  --suite libero_spatial \
-  --gpu 0 \
+  --suite libero_spatial --gpu 0 \
   --env-port 31000 --clean-env-port 31001 \
   --manifest configs/libero_plus/splits/train560-split2026.json \
   --seed 0 --episodes 140 --updates-per-episode 5 \
-  --save-every-steps 70 --run-name default
+  --save-every-steps 70 --keep-last-checkpoints 2
 ```
 
-常用覆盖项：
-
-- horizon：`--episode-horizon 220`
-- 完全自定义输出：`--output-dir /absolute/path`
-- 高级 Tyro 配置：`-- --priority-per-phase 4 --random-per-phase 4 --min-temporal-gap 4`
+常用覆盖项：`--episode-horizon N`、`--output-dir /absolute/path`、`--run-name NAME`。Tyro 高级参数放在 `--` 后，例如 `-- --min-temporal-gap 4 --save-timestep-scores true`；全轨迹分数默认不保存。
 
 默认输出：
 
 ```text
-output/train/libero-plus/opqd-v2-train560-split2026/seed-000/<suite>/default/
-├── config.json
+output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/<suite>/
 ├── run.json
 ├── status.json
 ├── metrics.jsonl
-├── train.log
-└── checkpoint-step-000070/
-    ├── adapter/
-    └── trainer_state.pt
+├── logs/
+│   ├── train.log
+│   ├── plus_rollout_service.log
+│   └── iid_anchor_service.log
+└── checkpoints/                 # 默认只保留最近 2 个完整 checkpoint
+    ├── step-000630/
+    └── step-000700/
 ```
 
-每 70 steps 保存一次，最终 checkpoint 为 `checkpoint-step-000700`。
+`run.json` 是唯一运行配置与溯源入口；`metrics.jsonl` 是逐 episode 指标；服务日志与训练日志只放 `logs/`。
 
 ## 4. suzhou-C 四 suite 并行
 
@@ -71,16 +68,14 @@ output/train/libero-plus/opqd-v2-train560-split2026/seed-000/<suite>/default/
 for spec in 'libero_spatial 0 31000 31001' 'libero_object 1 31010 31011' 'libero_goal 2 31020 31021' 'libero_10 3 31030 31031'; do
   set -- $spec
   tmux new-session -d -s "opqd-s0-$1" \
-    "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite $1 --gpu $2 --env-port $3 --clean-env-port $4 --seed 0 --run-name default"
+    "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite $1 --gpu $2 --env-port $3 --clean-env-port $4 --seed 0"
 done
 ```
-
-查看状态：
 
 ```bash
 ./monitor_eval.sh --once --opqd-train-seed 0
 tmux ls
-tail -f output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spatial/default/train.log
+tail -f output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/logs/train.log
 ```
 
 ## 5. 断点恢复
@@ -88,54 +83,46 @@ tail -f output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spat
 ```bash
 ./train_quantvla_opqd.sh --suite libero_spatial --gpu 0 \
   --env-port 31000 --clean-env-port 31001 --seed 0 \
-  --resume-from output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spatial/default/checkpoint-step-000350
+  --resume-from output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/checkpoints/step-000630
 ```
 
-必须保持 suite、seed、manifest 和关键超参不变；程序会恢复 adapter、optimizer、scheduler、随机状态和 task schedule。
+suite、seed、manifest 和关键超参必须一致；程序恢复 adapter、optimizer、scheduler、RNG 与 task schedule。
 
-## 6. 评测训练后的 adapter
+## 6. 评测 adapte
 
 ```bash
 ./eval_quantvla_opqd.sh \
-  --benchmark libero-plus \
-  --suite libero_spatial \
+  --benchmark libero-plus --suite libero_spatial \
   --gpu 4 --port 31240 \
-  --checkpoint output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spatial/default/checkpoint-step-000700 \
-  --train-seed 0 --eval-seed 2026 --run-name default
+  --checkpoint output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial/checkpoints/step-000700 \
+  --train-seed 0 --eval-seed 2026
 ```
 
 默认输出：
 
 ```text
-output/eval/libero-plus/test560-split2026/opqd-v2/seed-000/<suite>/default/
+output/eval/libero-plus/test560-split2026/opqd-v2-s16/seed-000/<suite>/
+├── run.json
+├── metrics/{episodes.jsonl,summary.json}
+├── logs/{server.log,pipeline.log,evaluator.log}
+└── videos/                      # 仅 --save-video 时产生
 ```
 
-评测 Standard LIBERO 只需改为 `--benchmark libero`；指定其他卡、端口、output、ckpt 的方式与基线完全相同。已有相同结果时显式加 `--resume`，不要直接覆盖。
+正式 eval 默认不保存视频。需要行为诊断时加 `--save-video --run-name video-debug`；已有相同 episode 时加 `--resume`，不得直接覆盖。Standard LIBERO 使用 `--benchmark libero`。
 
-正式 eval 默认不保存视频。只在需要检查行为时加 `--save-video`，并使用独立输出名：
+## 7. Seeds、汇总与 smoke test
 
-```bash
-./eval_quantvla_opqd.sh --benchmark libero-plus --suite libero_spatial \
-  --gpu 4 --port 31240 --checkpoint /path/to/checkpoint --train-seed 0 \
-  --save-video --run-name video-debug
-```
-
-视频路径会写入 `episodes.jsonl` 的 `video_path`；不加 `--save-video` 时不会生成 rollout 视频。
-
-## 7. Seeds、监控与报告
-
-seed 1/2 只需同时改变 `--seed`、端口和输出自动生成的 `seed-XXX` 路径。评测时对应使用 `--train-seed 1` 或 `2`；eval seed 保持 2026，确保方法间成对比较。
+seed 1/2 同时改变训练 `--seed`、端口以及评测 `--train-seed`；三组 eval 都固定 `--eval-seed 2026`。
 
 ```bash
 ./monitor_eval.sh --refresh-seconds 20 --opqd-train-seed 0
 ./collect_eval.sh --opqd-train-seed 0
 ./collect_eval.sh --opqd-train-seed 0 --require-complete
+
+./train_quantvla_opqd.sh --suite libero_spatial --gpu 0 \
+  --env-port 31900 --clean-env-port 31901 --seed 0 \
+  --episodes 1 --updates-per-episode 1 \
+  --output-dir output/smoke/opqd-v2-s16/spatial
 ```
 
-smoke test 必须使用独立目录，不能混入正式输出：
-
-```bash
-./train_quantvla_opqd.sh --suite libero_spatial --gpu 0 --env-port 31900 \
-  --clean-env-port 31901 --seed 0 --episodes 1 --updates-per-episode 1 \
-  --output-dir output/smoke/opqd-v2/spatial
-```
+smoke test 必须使用独立目录，不能写入正式结果。

@@ -1,5 +1,6 @@
 import json
 import os
+import pathlib
 import pprint
 import time
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from examples.Libero.eval.utils import (
     quat2axisangle,
     save_rollout_video,
 )
+from scripts.eval_run_metadata import write_eval_run_metadata
 
 default_output_dir = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "output")
@@ -203,6 +205,15 @@ def _write_standard_summary(path: str, cfg: GenerateConfig, records: list[dict])
 
 
 def eval_libero(cfg: GenerateConfig) -> None:
+    metrics_dir = os.environ.get("LIBERO_EVAL_METRICS_DIR", os.path.join(log_dir, "metrics"))
+    logs_dir = os.environ.get("LIBERO_EVAL_LOGS_DIR", os.path.join(log_dir, "logs"))
+    video_dir = os.environ.get("LIBERO_EVAL_VIDEO_DIR", os.path.join(log_dir, "videos"))
+    os.makedirs(metrics_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    if cfg.save_video:
+        os.makedirs(video_dir, exist_ok=True)
+    os.environ["LIBERO_EVAL_VIDEO_DIR"] = video_di
+    write_eval_run_metadata(pathlib.Path(log_dir), cfg)
     benchmark_dict = benchmark.get_benchmark_dict()
     task_suite = benchmark_dict[cfg.task_suite_name]()
     num_tasks_in_suite = task_suite.n_tasks
@@ -216,9 +227,9 @@ def eval_libero(cfg: GenerateConfig) -> None:
         task_indices = list(range(num_tasks_in_suite))
     task_indices = [idx for idx in task_indices if 0 <= idx < num_tasks_in_suite]
 
-    log_path = f"{log_dir}/libero_eval_{cfg.task_suite_name}.log"
-    episodes_path = f"{log_dir}/episodes.jsonl"
-    summary_path = f"{log_dir}/summary.json"
+    log_path = f"{logs_dir}/evaluator.log"
+    episodes_path = f"{metrics_dir}/episodes.jsonl"
+    summary_path = f"{metrics_dir}/summary.json"
     existing_records = (
         _load_episode_records(episodes_path, cfg.task_suite_name, cfg.model_variant)
         if cfg.resume

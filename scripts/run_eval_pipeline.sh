@@ -19,8 +19,8 @@ Required/primary options:
   --port PORT            inference server port (default: 5556)
   --output-root PATH     root for normalized outputs (default: ./output)
   --output-dir PATH      exact eval directory; overrides output-root/run-name
-  --run-name NAME        final output component (default: default)
-  --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter dir
+  --run-name NAME        optional final output component (default: none)
+  --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter di
   --eval-seed N          fixed policy sampling seed (default: 2026)
   --train-seed N         OPQD train seed used in output naming
 
@@ -56,7 +56,7 @@ GPU="0"
 PORT="5556"
 OUTPUT_ROOT="$REPO_ROOT/output"
 OUTPUT_DIR=""
-RUN_NAME="default"
+RUN_NAME=""
 CHECKPOINT=""
 MANIFEST="$REPO_ROOT/configs/libero_plus/splits/test560-split2026.json"
 EVAL_SEED="2026"
@@ -98,7 +98,7 @@ quantvla_validate_benchmark "$BENCHMARK"
 quantvla_validate_suite "$SUITE"
 quantvla_validate_gpu "$GPU"
 quantvla_validate_port "$PORT"
-quantvla_validate_run_name "$RUN_NAME"
+[[ -z "$RUN_NAME" ]] || quantvla_validate_run_name "$RUN_NAME"
 quantvla_validate_port "$SERVER_TIMEOUT"
 if [[ ! "$EVAL_SEED" =~ ^[0-9]+$ || ( -n "$TRAIN_SEED" && ! "$TRAIN_SEED" =~ ^[0-9]+$ ) ]]; then
     echo "eval/train seeds must be non-negative integers" >&2
@@ -109,11 +109,12 @@ OUTPUT_ROOT="$(quantvla_abs_path "$OUTPUT_ROOT")"
 if [[ -z "$OUTPUT_DIR" ]]; then
     if [[ "$BENCHMARK" == "libero-plus" ]]; then
         METHOD_OUTPUT="$METHOD"
-        [[ "$METHOD" == "quantvla-opqd" ]] && METHOD_OUTPUT="opqd-v2/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
-        OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/test560-split2026/$METHOD_OUTPUT/$SUITE/$RUN_NAME"
+        [[ "$METHOD" == "quantvla-opqd" ]] && METHOD_OUTPUT="opqd-v2-s16/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
+        OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/test560-split2026/$METHOD_OUTPUT/$SUITE"
     else
-        OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE/$RUN_NAME"
+        OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE"
     fi
+    [[ -z "$RUN_NAME" ]] || OUTPUT_DIR="$OUTPUT_DIR/$RUN_NAME"
 else
     OUTPUT_DIR="$(quantvla_abs_path "$OUTPUT_DIR")"
 fi
@@ -145,8 +146,8 @@ if [[ "$METHOD" == "quantvla-opqd" ]]; then
     fi
 fi
 
-if [[ -e "$OUTPUT_DIR/episodes.jsonl" && "$RESUME" == 0 ]]; then
-    echo "Refusing to overwrite existing evaluation: $OUTPUT_DIR/episodes.jsonl" >&2
+if [[ -e "$OUTPUT_DIR/metrics/episodes.jsonl" && "$RESUME" == 0 ]]; then
+    echo "Refusing to overwrite existing evaluation: $OUTPUT_DIR/metrics/episodes.jsonl" >&2
     echo "Use --resume or choose a new --run-name/--output-dir." >&2
     exit 2
 fi
@@ -171,6 +172,9 @@ EVAL_ENV=(
     "CUDA_VISIBLE_DEVICES=$GPU"
     "GR00T_PORT=$PORT"
     "EVAL_MODEL_VARIANT=$MODEL_VARIANT"
+    "LIBERO_EVAL_METRICS_DIR=$OUTPUT_DIR/metrics"
+    "LIBERO_EVAL_LOGS_DIR=$OUTPUT_DIR/logs"
+    "LIBERO_EVAL_VIDEO_DIR=$OUTPUT_DIR/videos"
 )
 if (( OFFLINE )); then
     OFFLINE_ENV=(
@@ -212,13 +216,22 @@ if (( DRY_RUN )); then
     exit 0
 fi
 
-mkdir -p "$OUTPUT_DIR"
-SERVER_LOG="$OUTPUT_DIR/server.log"
-PIPELINE_LOG="$OUTPUT_DIR/pipeline.log"
-printf '%q ' env "${SERVER_ENV[@]}" "${SERVER_CMD[@]}" >"$OUTPUT_DIR/server_command.txt"
-printf '\n' >>"$OUTPUT_DIR/server_command.txt"
-printf '%q ' env "${EVAL_ENV[@]}" "${EVAL_CMD[@]}" >"$OUTPUT_DIR/eval_command.txt"
-printf '\n' >>"$OUTPUT_DIR/eval_command.txt"
+printf -v SERVER_COMMAND_TEXT '%q ' env "${SERVER_ENV[@]}" "${SERVER_CMD[@]}"
+printf -v EVALUATOR_COMMAND_TEXT '%q ' env "${EVAL_ENV[@]}" "${EVAL_CMD[@]}"
+METADATA_MANIFEST=""
+[[ "$BENCHMARK" == "libero-plus" ]] && METADATA_MANIFEST="$MANIFEST"
+EVAL_ENV+=(
+    "EVAL_METHOD=$METHOD"
+    "EVAL_BENCHMARK=$BENCHMARK"
+    "EVAL_TRAIN_SEED=$TRAIN_SEED"
+    "EVAL_CHECKPOINT=$CHECKPOINT"
+    "EVAL_MANIFEST=$METADATA_MANIFEST"
+    "EVAL_SERVER_COMMAND=$SERVER_COMMAND_TEXT"
+    "EVAL_EVALUATOR_COMMAND=$EVALUATOR_COMMAND_TEXT"
+)
+mkdir -p "$OUTPUT_DIR/metrics" "$OUTPUT_DIR/logs"
+SERVER_LOG="$OUTPUT_DIR/logs/server.log"
+PIPELINE_LOG="$OUTPUT_DIR/logs/pipeline.log"
 
 env "${SERVER_ENV[@]}" "${SERVER_CMD[@]}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
@@ -233,8 +246,8 @@ echo "Inference server ready (PID $SERVER_PID)."
 set -o pipefail
 env "${EVAL_ENV[@]}" "${EVAL_CMD[@]}" 2>&1 | tee -a "$PIPELINE_LOG"
 
-if [[ ! -s "$OUTPUT_DIR/summary.json" ]]; then
-    echo "Evaluation exited without a non-empty summary.json: $OUTPUT_DIR" >&2
+if [[ ! -s "$OUTPUT_DIR/metrics/summary.json" ]]; then
+    echo "Evaluation exited without a non-empty metrics/summary.json: $OUTPUT_DIR" >&2
     exit 1
 fi
-echo "Evaluation complete: $OUTPUT_DIR/summary.json"
+echo "Evaluation complete: $OUTPUT_DIR/metrics/summary.json"

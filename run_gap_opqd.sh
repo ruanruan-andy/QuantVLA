@@ -21,8 +21,8 @@ case "$TASK" in
     *) echo "Unsupported clean LIBERO suite: $TASK" >&2; exit 1 ;;
 esac
 
-OUTPUT_DIR="${GAP_OPQD_OUTPUT_DIR:-$REPO_ROOT/output/train/libero-plus/opqd-v2/$TASK}"
-mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="${GAP_OPQD_OUTPUT_DIR:-$REPO_ROOT/output/train/libero-plus/opqd-v2-s16/$TASK}"
+mkdir -p "$OUTPUT_DIR/logs"
 
 # Disjoint training environment. Test-560 is never loaded by this process.
 (
@@ -35,7 +35,7 @@ mkdir -p "$OUTPUT_DIR"
         --task-suite-name "$TASK" \
         --sample-manifest "$SAMPLE_MANIFEST" \
         --port "$OOD_ENV_PORT"
-) >"$OUTPUT_DIR/ood_env_service.log" 2>&1 &
+) >"$OUTPUT_DIR/logs/plus_rollout_service.log" 2>&1 &
 OOD_ENV_PID=$!
 
 # Standard clean LIBERO supplies the optional IID preservation anchor.
@@ -46,7 +46,7 @@ OOD_ENV_PID=$!
     export LIBERO_CONFIG_PATH="$CLEAN_LIBERO_CONFIG_PATH"
     export MUJOCO_GL="${MUJOCO_GL:-egl}"
     exec python "$REPO_ROOT/scripts/libero_iid_env_service.py" --port "$CLEAN_ENV_PORT"
-) >"$OUTPUT_DIR/clean_env_service.log" 2>&1 &
+) >"$OUTPUT_DIR/logs/iid_anchor_service.log" 2>&1 &
 CLEAN_ENV_PID=$!
 cleanup() {
     kill "$OOD_ENV_PID" "$CLEAN_ENV_PID" 2>/dev/null || true

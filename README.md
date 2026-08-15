@@ -40,7 +40,7 @@ protect existing episode files from accidental overwrite.
 
 The formal protocol uses equally sized, disjoint LIBERO-Plus manifests: Train-560 for OPQD
 adaptation and Test-560 for all three methods. OPQD uses full student-executed
-episodes and selects 32 phase-balanced states per episode.
+episodes and selects 16 phase-balanced states per episode.
 
 | Document | Content |
 |---|---|

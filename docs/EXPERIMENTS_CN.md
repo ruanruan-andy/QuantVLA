@@ -43,7 +43,7 @@
 | ID | 变量 | 候选值 | 回答的问题 | 优先级 |
 |---|---|---|---|---|
 | A1 | selection | random-only / priority-only / mixed | q/r priority 是否有效 | P0 |
-| A2 | states/episode | 16 / **32** / 64 | 稀疏预算与收益/成本 | P0 |
+| A2 | states/episode | **16** / 32 / 64 | 稀疏预算与收益/成本 | P0 |
 | A3 | phases | no phase / 4 phases | 阶段覆盖是否有效 | P0 |
 | A4 | min gap | 0 / 2 / **4** / 8 | 时间冗余影响 | P1 |
 | A5 | temporal risk | q-only / q+r | (r_t) 是否贡献 | P0 |
@@ -51,16 +51,16 @@
 | A7 | updates/episode | 1 / **5** | 重复更新是否必要 | P1 |
 | A8 | LoRA rank | 8 / **16** / 32 | 容量敏感性 | P2 |
 
-64-state 版本在 spatial horizon 220 下无法同时严格满足 gap 4（理论最多约 55 个），因此若做 A2，必须明确记录 gap relaxation；不能把它与主配置当作完全同约束比较。
+32/64-state 版本必须同步定义每阶段 priority/random 配额。64-state 在 spatial horizon 220 下无法同时严格满足 gap 4（理论最多约 55 个），因此 A2 必须报告每阶段实际 gap；不能把它与 16-state 主配置当作完全同约束比较。
 
 ## 4. 诊断表
 
-| Seed | Suite | Episode success | gap relaxed | q mean/max | grad norm | episode sec | ETA |
-|---:|---|---:|---:|---:|---:|---:|---:|
-| 0 | spatial | — | — | — | — | — | — |
-| 0 | object | — | — | — | — | — | — |
-| 0 | goal | — | — | — | — | — | — |
-| 0 | long | — | — | — | — | — | — |
+| Seed | Suite | Episode success | selection | phase gaps | q mean/max | grad norm | episode sec | ETA |
+|---:|---|---:|---:|---|---:|---:|---:|---:|
+| 0 | spatial | — | —/16 | —/—/—/— | — | — | — | — |
+| 0 | object | — | —/16 | —/—/—/— | — | — | — | — |
+| 0 | goal | — | —/16 | —/—/—/— | — | — | — | — |
+| 0 | long | — | —/16 | —/—/—/— | — | — | — | — |
 
 建议额外画出 phase 的选择数量、timestep 分布、q/r 分布及 checkpoint 曲线；这用于解释方法，不替代 Test success rate。
 

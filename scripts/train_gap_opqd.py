@@ -10,12 +10,16 @@ supplies the IID anchor used to limit clean-domain regression.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 import os
 import pickle
 import random
+import re
+import shutil
 import socket
+import subprocess
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -61,7 +65,7 @@ SUITE_EPISODE_HORIZONS = {
 @dataclass
 class TrainConfig:
     task_suite_name: str = "libero_spatial"
-    output_dir: str = "output/train/libero-plus/opqd-v2-train560-split2026/seed-000/libero_spatial"
+    output_dir: str = "output/train/libero-plus/opqd-v2-s16-train560-split2026/seed-000/libero_spatial"
     sample_manifest: str = "configs/libero_plus/splits/train560-split2026.json"
     num_rollout_episodes: int = 140
     episode_horizon: int | None = None
@@ -96,8 +100,8 @@ class TrainConfig:
     weight_min: float = 0.5
     weight_max: float = 2.0
     phase_bins: int = 4
-    priority_per_phase: int = 4
-    random_per_phase: int = 4
+    priority_per_phase: int = 2
+    random_per_phase: int = 2
     min_temporal_gap: int = 4
 
     lambda_anchor: float = 0.1
@@ -105,6 +109,8 @@ class TrainConfig:
     anchor_batch_size: int = 4
     warmup_steps: int = 50
     save_every_steps: int = 70
+    keep_last_checkpoints: int = 2
+    save_timestep_scores: bool = False
     resume: bool = True
     resume_from_checkpoint: str | None = None
     dry_run: bool = False
@@ -138,6 +144,8 @@ class TrainConfig:
             raise ValueError("anchor replay settings must be non-negative")
         if self.warmup_steps < 0 or self.save_every_steps <= 0:
             raise ValueError("warmup must be non-negative and save interval positive")
+        if self.keep_last_checkpoints < 0:
+            raise ValueError("keep_last_checkpoints must be non-negative")
 
     @property
     def resolved_episode_horizon(self) -> int:
@@ -153,22 +161,22 @@ class CachedState:
     backbone_output: BatchFeature
     action_input: BatchFeature
     initial_noise: torch.Tensor
-    teacher_action: torch.Tensor
+    teacher_action: torch.Tenso
 
 
 @dataclass
 class ScoredStep:
     policy_observation: dict[str, Any]
-    initial_noise: torch.Tensor
-    teacher_action: torch.Tensor
-    student_action: torch.Tensor
+    initial_noise: torch.Tenso
+    teacher_action: torch.Tenso
+    student_action: torch.Tenso
 
 
 @dataclass
 class RolloutTrace:
     steps: list[ScoredStep]
     success: bool
-    termination_reason: str
+    termination_reason: st
 
 
 class IIDEnvClient:
@@ -571,8 +579,8 @@ def _save_checkpoint(
     sampler: random.Random,
     noise_generator: torch.Generator,
     task_schedule: list[int],
-) -> None:
-    checkpoint_dir = output_dir / f"checkpoint-step-{optimizer_step:06d}"
+) -> Path:
+    checkpoint_dir = output_dir / "checkpoints" / f"step-{optimizer_step:06d}"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     student.model.save_pretrained(checkpoint_dir / "adapter")
     torch.save(
@@ -589,6 +597,47 @@ def _save_checkpoint(
         },
         checkpoint_dir / "trainer_state.pt",
     )
+    if not (checkpoint_dir / "adapter").is_dir() or not (
+        checkpoint_dir / "trainer_state.pt"
+    ).is_file():
+        raise RuntimeError(f"incomplete checkpoint: {checkpoint_dir}")
+    return checkpoint_di
+
+
+def _checkpoint_step(path: Path) -> int | None:
+    match = re.fullmatch(r"step-(\d{6})", path.name)
+    return int(match.group(1)) if match else None
+
+
+def _valid_checkpoints(output_dir: Path) -> list[Path]:
+    checkpoints_dir = output_dir / "checkpoints"
+    if not checkpoints_dir.is_dir():
+        return []
+    candidates = []
+    for path in checkpoints_dir.iterdir():
+        step = _checkpoint_step(path)
+        if (
+            step is not None
+            and path.is_dir()
+            and not path.is_symlink()
+            and (path / "adapter").is_dir()
+            and (path / "trainer_state.pt").is_file()
+        ):
+            candidates.append(path)
+    return sorted(candidates, key=lambda path: _checkpoint_step(path) or -1)
+
+
+def _prune_checkpoints(output_dir: Path, keep_last: int) -> None:
+    """Retain only the newest complete managed checkpoints; zero keeps all."""
+    if keep_last == 0:
+        return
+    checkpoints_dir = (output_dir / "checkpoints").resolve()
+    stale = _valid_checkpoints(output_dir)[:-keep_last]
+    for path in stale:
+        resolved = path.resolve()
+        if path.is_symlink() or resolved.parent != checkpoints_dir:
+            raise RuntimeError(f"refusing to prune unsafe checkpoint path: {path}")
+        shutil.rmtree(resolved)
 
 
 def _resolve_resume_checkpoint(config: TrainConfig, output_dir: Path) -> Path | None:
@@ -599,12 +648,27 @@ def _resolve_resume_checkpoint(config: TrainConfig, output_dir: Path) -> Path | 
         return checkpoint
     if not config.resume:
         return None
-    candidates = sorted(
-        path
-        for path in output_dir.glob("checkpoint-*")
-        if (path / "adapter").is_dir() and (path / "trainer_state.pt").is_file()
-    )
+    candidates = _valid_checkpoints(output_dir)
     return candidates[-1] if candidates else None
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _git_commit(repo_root: Path) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _truncate_metrics_to_episode(metrics_path: Path, episode: int) -> None:
@@ -658,21 +722,33 @@ def train(config: TrainConfig) -> None:
     serialized_config["resolved_resume_checkpoint"] = (
         str(resume_checkpoint) if resume_checkpoint is not None else None
     )
-    (output_dir / "config.json").write_text(
-        json.dumps(serialized_config, indent=2), encoding="utf-8"
-    )
+    manifest_path = Path(config.sample_manifest).expanduser().resolve()
+    previous_run: dict[str, Any] = {}
+    run_path = output_dir / "run.json"
+    if run_path.is_file():
+        try:
+            previous_run = json.loads(run_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous_run = {}
+    now = time.time()
     run_metadata = {
+        "schema_version": 2,
         "method": "quantvla-opqd-v2",
+        "variant": "phase-local-s16",
         "suite": config.task_suite_name,
         "seed": config.seed,
         "host": socket.gethostname(),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
         "env_endpoint": f"{config.env_host}:{config.env_port}",
         "clean_env_endpoint": f"{config.clean_env_host}:{config.clean_env_port}",
-        "sample_manifest": str(Path(config.sample_manifest).expanduser().resolve()),
-        "created_at": time.time(),
+        "manifest": {"path": str(manifest_path), "sha256": _sha256(manifest_path)},
+        "git_commit": _git_commit(repo_root),
+        "launch_command": os.environ.get("GAP_OPQD_LAUNCH_COMMAND"),
+        "created_at": previous_run.get("created_at", now),
+        "last_started_at": now,
+        "config": serialized_config,
     }
-    (output_dir / "run.json").write_text(
+    run_path.write_text(
         json.dumps(run_metadata, indent=2), encoding="utf-8"
     )
     initial_status = {
@@ -685,6 +761,11 @@ def train(config: TrainConfig) -> None:
         "optimizer_step": 0,
         "optimizer_steps_total": config.max_train_steps,
         "last_episode_success": None,
+        "selected_state_count": 0,
+        "target_min_gap": config.min_temporal_gap,
+        "phase_effective_gaps": None,
+        "actual_min_gap": None,
+        "selection_valid": None,
         "eta_seconds": None,
         "host": run_metadata["host"],
         "cuda_visible_devices": run_metadata["cuda_visible_devices"],
@@ -719,18 +800,8 @@ def train(config: TrainConfig) -> None:
         }
         task_schedule = primary_task_ids.copy()
         sampler.shuffle(task_schedule)
-        (output_dir / "selected_ood_tasks.json").write_text(
-            json.dumps(
-                [
-                    item
-                    for item in selected_task_metadata
-                    if int(item["task_id"]) in set(primary_task_ids)
-                ],
-                indent=2,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
+        run_metadata["train_task_count"] = len(primary_task_ids)
+        run_path.write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
         print(
             f"Loaded OOD calibration split: {len(primary_task_ids)} tasks from "
             f"{Path(config.sample_manifest).resolve()}"
@@ -843,8 +914,9 @@ def train(config: TrainConfig) -> None:
                     noise_generator=noise_generator,
                 )
                 if not trace.steps:
-                    print(f"episode {episode}: empty rollout; skipping update")
-                    continue
+                    raise RuntimeError(
+                        f"episode {episode}: rollout ended before any student action"
+                    )
 
                 student_actions, teacher_actions = _stack_trace_actions(trace)
                 q_values, r_values, _ = build_gap_opqd_targets(
@@ -859,6 +931,35 @@ def train(config: TrainConfig) -> None:
                     selection_config,
                     rng=sampler,
                 )
+                expected_per_phase = (
+                    selection_config.priority_per_phase
+                    + selection_config.random_per_phase
+                )
+                phase_counts = [
+                    selection.phases.count(phase)
+                    for phase in range(selection_config.phase_bins)
+                ]
+                priority_counts = [
+                    selection.reasons.count(f"priority_phase_{phase}")
+                    for phase in range(selection_config.phase_bins)
+                ]
+                random_counts = [
+                    selection.reasons.count(f"random_phase_{phase}")
+                    for phase in range(selection_config.phase_bins)
+                ]
+                selection_valid = (
+                    len(selection.indices) == selection_config.states_per_episode
+                    and phase_counts
+                    == [expected_per_phase] * selection_config.phase_bins
+                    and priority_counts
+                    == [selection_config.priority_per_phase]
+                    * selection_config.phase_bins
+                    and random_counts
+                    == [selection_config.random_per_phase]
+                    * selection_config.phase_bins
+                )
+                if not selection_valid:
+                    raise AssertionError("phase-local OPQD selection quota violation")
                 states = _materialize_states(student, trace, selection.indices)
                 normalized_weights = selection.weights / selection.weights.sum().clamp_min(1e-8)
 
@@ -928,6 +1029,7 @@ def train(config: TrainConfig) -> None:
                     optimizer_step += 1
                     gradient_norms.append(float(gradient_norm))
 
+                selected_tensor = torch.as_tensor(selection.indices, dtype=torch.long)
                 record = {
                     "episode": episode,
                     "optimizer_step": optimizer_step,
@@ -945,6 +1047,16 @@ def train(config: TrainConfig) -> None:
                     "selected_indices": list(selection.indices),
                     "selected_phases": list(selection.phases),
                     "selected_reasons": list(selection.reasons),
+                    "selected_q": q_values[selected_tensor].tolist(),
+                    "selected_r": r_values[selected_tensor].tolist(),
+                    "selected_priority_scores": selection.priority_scores.tolist(),
+                    "phase_counts": phase_counts,
+                    "priority_counts": priority_counts,
+                    "random_counts": random_counts,
+                    "selection_valid": selection_valid,
+                    "target_min_gap": selection_config.min_temporal_gap,
+                    "phase_effective_gaps": list(selection.phase_effective_gaps),
+                    "actual_min_gap": selection.actual_min_gap,
                     "selection_gap_relaxed": selection.gap_relaxed,
                     "q_mean": q_values.mean().item(),
                     "q_max": q_values.max().item(),
@@ -962,9 +1074,10 @@ def train(config: TrainConfig) -> None:
                     "learning_rate": float(optimizer.param_groups[0]["lr"]),
                     "clean_replay_size": len(clean_replay),
                     "duration_seconds": round(time.time() - started_at, 3),
-                    "q_by_timestep": q_values.tolist(),
-                    "r_by_timestep": r_values.tolist(),
                 }
+                if config.save_timestep_scores:
+                    record["q_by_timestep"] = q_values.tolist()
+                    record["r_by_timestep"] = r_values.tolist()
                 recent_episode_durations.append(record["duration_seconds"])
                 eta_seconds = (
                     float(np.median(recent_episode_durations))
@@ -977,6 +1090,15 @@ def train(config: TrainConfig) -> None:
                             key: value
                             for key, value in record.items()
                             if not key.endswith("timestep")
+                            and key
+                            not in {
+                                "selected_indices",
+                                "selected_phases",
+                                "selected_reasons",
+                                "selected_q",
+                                "selected_r",
+                                "selected_priority_scores",
+                            }
                         }
                     )
                 )
@@ -997,6 +1119,11 @@ def train(config: TrainConfig) -> None:
                     "optimizer_steps_total": config.max_train_steps,
                     "last_episode_success": trace.success,
                     "last_episode_duration_seconds": record["duration_seconds"],
+                    "selected_state_count": len(selection.indices),
+                    "target_min_gap": selection_config.min_temporal_gap,
+                    "phase_effective_gaps": list(selection.phase_effective_gaps),
+                    "actual_min_gap": selection.actual_min_gap,
+                    "selection_valid": selection_valid,
                     "eta_seconds": round(eta_seconds, 1),
                     "host": run_metadata["host"],
                     "cuda_visible_devices": run_metadata["cuda_visible_devices"],
@@ -1021,6 +1148,7 @@ def train(config: TrainConfig) -> None:
                         noise_generator=noise_generator,
                         task_schedule=task_schedule,
                     )
+                    _prune_checkpoints(output_dir, config.keep_last_checkpoints)
     finally:
         env_client.close()
         if clean_env_client is not None:

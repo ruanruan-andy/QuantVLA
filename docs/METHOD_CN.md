@@ -61,11 +61,11 @@ s_t=\alpha\,rank(q_t)+\beta\,rank(r_t),\qquad \alpha=\beta=1.
 
 每阶段选择：
 
-- 4 个最高 (s_t) 的 priority states；
-- 4 个可复现随机 states；
-- 合计 8 个，四阶段共 32 个。
+- 2 个最高 (s_t) 的 priority states；
+- 2 个可复现随机 states；
+- 合计 4 个，四阶段固定为 16 个。
 
-`min_temporal_gap=4` 要求两个入选 timestep 的差至少为 4，避免连续相邻帧重复提供几乎相同的监督。若 episode 太短或受约束后不足 32 个，则从未选状态中按分数补齐、只放宽 gap、不产生重复，并记录 `selection_gap_relaxed`。
+`min_temporal_gap=4` 是目标间隔：选中 10 后，下一候选至少为 14，避免相邻帧重复监督。selector 在每个阶段内依次尝试 gap 4、3、2、1，直到该阶段恰好补齐 2 个 priority 和 2 个 random；候选绝不跨阶段补位、不重复。轨迹少于 16 个状态时直接报错，不能产生伪完整样本。输出记录每阶段实际 gap、数量和 `selection_valid`，因此固定配额和约束放宽都可审计。
 
 这种设计不是原始稠密 OPD 的复刻，而是本文的计算受限稀疏蒸馏假设：阶段覆盖负责轨迹多样性，高分状态负责困难性，随机状态降低纯 top-k 的选择偏差。
 
@@ -77,17 +77,17 @@ s_t=\alpha\,rank(q_t)+\beta\,rank(r_t),\qquad \alpha=\beta=1.
 w_t=clip\left(\frac{s_t}{mean(s)},0.5,2.0\right),
 \]
 
-随后归一化使权重和为 1。主损失仍比较共享 noise 下、实际执行动作位置的七维教师/学生 MSE。每个 episode 对同一批 32 个状态做 5 次 optimizer update。
+随后归一化使权重和为 1。主损失仍比较共享 noise 下、实际执行动作位置的七维教师/学生 MSE。每个 episode 对同一批 16 个状态做 5 次 optimizer update。
 
 只有 action-head attention 的 Q/K/V linear layers 注入 LoRA；backbone、量化参数和教师冻结。默认 LoRA rank 16、alpha 32、dropout 0.05，AdamW 学习率 (5\times10^{-5})、weight decay 0.01、50-step warmup 后 cosine decay、gradient clip 1.0。
 
-## 7. Clean anchor
+## 7. Clean ancho
 
 为限制 OOD 适配破坏 Standard LIBERO，每轮从 clean LIBERO 采集最多 4 个教师/学生状态，放入容量 256 的 replay；每次更新随机取 4 个，以 `lambda_anchor=0.1` 加入损失。它是训练正则项，不是 validation，也不参与 checkpoint 选择。
 
 ## 8. 可复现性与输出
 
-训练 seed 同时控制 task schedule、随机状态选择、initial-state 抽样和 diffusion noise。checkpoint 保存 LoRA、optimizer、scheduler、Python/NumPy/Torch RNG 与 task schedule。`run.json` 记录方法、host、GPU、端口、manifest；`metrics.jsonl` 记录完整 q/r、选择索引、phase/reason、success、loss、梯度与耗时。
+训练 seed 同时控制 task schedule、随机状态选择、initial-state 抽样和 diffusion noise。checkpoint 保存 LoRA、optimizer、scheduler、Python/NumPy/Torch RNG 与 task schedule。`run.json` 记录方法、代码版本、host、GPU、端口、manifest 与完整配置；`metrics.jsonl` 默认只记录入选状态的 q/r、索引、phase/reason、配额校验、success、loss、梯度与耗时，只有诊断时才显式保存全轨迹 q/r。checkpoint 统一放在 `checkpoints/`，默认仅保留最近 2 个完整 checkpoint。
 
 ## 9. 可行性与局限
 
@@ -97,7 +97,7 @@ w_t=clip\left(\frac{s_t}{mean(s)},0.5,2.0\right),
 
 - (q/r) 衡量教师差异，不等同于任务成功的重要性；
 - 每步同时跑教师与学生，完整 episode 的训练成本高；
-- 32、四阶段、gap 4、5 updates 都是待消融的设计选择；
+- 16、四阶段、gap 4、5 updates 都是待消融的设计选择；
 - 仅监督 action chunk 的第一个动作，未利用整个 action horizon；
 - 纯学生 rollout 在很差的量化策略下可能长期停留于失败区域；
 - 当前无 validation，最终 checkpoint 是固定训练预算而非验证集最优；

@@ -17,8 +17,10 @@ class SelectionResult:
     indices: tuple[int, ...]
     phases: tuple[int, ...]
     reasons: tuple[str, ...]
-    priority_scores: torch.Tensor
-    weights: torch.Tensor
+    priority_scores: torch.Tenso
+    weights: torch.Tenso
+    phase_effective_gaps: tuple[int, ...]
+    actual_min_gap: int
     gap_relaxed: bool
 
 
@@ -54,7 +56,7 @@ def _respects_gap(index: int, selected: list[int], gap: int) -> bool:
     return gap == 0 or all(abs(index - other) >= gap for other in selected)
 
 
-def _append_candidates(
+def _take_candidates(
     candidates: list[int],
     *,
     count: int,
@@ -62,15 +64,78 @@ def _append_candidates(
     selected: list[int],
     reasons: dict[int, str],
     min_gap: int,
-) -> None:
+) -> list[int]:
+    chosen: list[int] = []
     for index in candidates:
         if index in reasons or not _respects_gap(index, selected, min_gap):
             continue
         selected.append(index)
+        chosen.append(index)
         reasons[index] = reason
         count -= 1
         if count == 0:
-            return
+            break
+    return chosen
+
+
+def _select_phase(
+    candidates: list[int],
+    scores: torch.Tensor,
+    config: OPQDSelectionConfig,
+    *,
+    phase: int,
+    selected_before_phase: list[int],
+    phase_seed: int,
+) -> tuple[list[int], dict[int, str], int]:
+    """Select an exact priority/random quota from one temporal phase.
+
+    The target gap is tried first. If the exact phase quota is infeasible, the
+    gap is reduced for this phase only. Candidate states never spill into a
+    different phase, and gap 1 guarantees a solution whenever the phase has
+    enough distinct states.
+    """
+    quota = config.priority_per_phase + config.random_per_phase
+    if len(candidates) < quota:
+        raise ValueError(
+            f"trajectory phase {phase} has {len(candidates)} states; "
+            f"at least {quota} are required"
+        )
+
+    target_gap = config.min_temporal_gap
+    gaps = [0] if target_gap == 0 else list(range(target_gap, 0, -1))
+    priority_order = sorted(candidates, key=lambda index: (-float(scores[index]), index))
+    for effective_gap in gaps:
+        selected = list(selected_before_phase)
+        reasons: dict[int, str] = {}
+        priority = _take_candidates(
+            priority_order,
+            count=config.priority_per_phase,
+            reason=f"priority_phase_{phase}",
+            selected=selected,
+            reasons=reasons,
+            min_gap=effective_gap,
+        )
+        if len(priority) != config.priority_per_phase:
+            continue
+
+        random_candidates = [index for index in candidates if index not in reasons]
+        random.Random(phase_seed).shuffle(random_candidates)
+        random_states = _take_candidates(
+            random_candidates,
+            count=config.random_per_phase,
+            reason=f"random_phase_{phase}",
+            selected=selected,
+            reasons=reasons,
+            min_gap=effective_gap,
+        )
+        if len(random_states) != config.random_per_phase:
+            continue
+        phase_selected = priority + random_states
+        if len(phase_selected) != quota:
+            raise AssertionError("phase selector returned an invalid quota")
+        return phase_selected, reasons, effective_gap
+
+    raise AssertionError(f"unable to satisfy phase {phase} quota even with gap 1")
 
 
 def select_phase_balanced_states(
@@ -82,9 +147,9 @@ def select_phase_balanced_states(
 ) -> SelectionResult:
     """Select a deterministic priority/random mixture across temporal bins.
 
-    The configured temporal gap is enforced first.  Very short or highly
-    constrained trajectories then use distinct no-gap fallbacks so the update
-    still receives up to ``states_per_episode`` states without duplicates.
+    Every temporal phase receives its exact priority/random quota. The target
+    temporal gap is enforced whenever feasible and otherwise reduced inside
+    the constrained phase; selection never spills into another phase.
     """
     config.validate()
     if q_values.ndim != 1 or r_values.ndim != 1 or q_values.shape != r_values.shape:
@@ -96,7 +161,12 @@ def select_phase_balanced_states(
 
     trajectory_length = q_values.numel()
     if trajectory_length == 0:
-        return SelectionResult((), (), (), torch.empty(0), torch.empty(0), False)
+        return SelectionResult((), (), (), torch.empty(0), torch.empty(0), (), 0, False)
+    if trajectory_length < config.states_per_episode:
+        raise ValueError(
+            f"trajectory has {trajectory_length} states; "
+            f"at least {config.states_per_episode} are required"
+        )
 
     phase_ids = [
         _phase_for_index(index, trajectory_length, config.phase_bins)
@@ -116,47 +186,52 @@ def select_phase_balanced_states(
 
     selected: list[int] = []
     reason_by_index: dict[int, str] = {}
+    phase_effective_gaps: list[int] = []
     for phase, candidates in enumerate(phase_candidates):
-        priority = sorted(candidates, key=lambda index: (-float(scores[index]), index))
-        _append_candidates(
-            priority,
-            count=config.priority_per_phase,
-            reason=f"priority_phase_{phase}",
-            selected=selected,
-            reasons=reason_by_index,
-            min_gap=config.min_temporal_gap,
+        phase_selected, phase_reasons, effective_gap = _select_phase(
+            candidates,
+            scores,
+            config,
+            phase=phase,
+            selected_before_phase=selected,
+            phase_seed=rng.getrandbits(64),
         )
+        selected.extend(phase_selected)
+        reason_by_index.update(phase_reasons)
+        phase_effective_gaps.append(effective_gap)
 
-        random_candidates = [index for index in candidates if index not in reason_by_index]
-        rng.shuffle(random_candidates)
-        _append_candidates(
-            random_candidates,
-            count=config.random_per_phase,
-            reason=f"random_phase_{phase}",
-            selected=selected,
-            reasons=reason_by_index,
-            min_gap=config.min_temporal_gap,
-        )
-
-    budget = min(config.states_per_episode, trajectory_length)
-    gap_relaxed = len(selected) < budget
-    if gap_relaxed:
-        remaining = [index for index in range(trajectory_length) if index not in reason_by_index]
-        remaining.sort(key=lambda index: (-float(scores[index]), index))
-        for index in remaining[: budget - len(selected)]:
-            selected.append(index)
-            reason_by_index[index] = "fallback_relaxed_gap"
+    if len(selected) != config.states_per_episode:
+        raise AssertionError("selector did not satisfy the configured state budget")
 
     selected.sort()
+    actual_min_gap = min(
+        (right - left for left, right in zip(selected, selected[1:])),
+        default=0,
+    )
+    expected_per_phase = config.priority_per_phase + config.random_per_phase
+    selected_phases = tuple(phase_ids[index] for index in selected)
+    if any(selected_phases.count(phase) != expected_per_phase for phase in range(config.phase_bins)):
+        raise AssertionError("selector violated a temporal phase quota")
+    if any(
+        sum(reason_by_index[index] == f"priority_phase_{phase}" for index in selected)
+        != config.priority_per_phase
+        or sum(reason_by_index[index] == f"random_phase_{phase}" for index in selected)
+        != config.random_per_phase
+        for phase in range(config.phase_bins)
+    ):
+        raise AssertionError("selector violated a priority/random quota")
+
     selected_tensor = torch.as_tensor(selected, dtype=torch.long)
     selected_scores = scores[selected_tensor]
     mean_score = selected_scores.mean().clamp_min(config.epsilon)
     weights = (selected_scores / mean_score).clamp(config.weight_min, config.weight_max)
     return SelectionResult(
         indices=tuple(selected),
-        phases=tuple(phase_ids[index] for index in selected),
+        phases=selected_phases,
         reasons=tuple(reason_by_index[index] for index in selected),
         priority_scores=selected_scores.detach(),
         weights=weights.detach(),
-        gap_relaxed=gap_relaxed,
+        phase_effective_gaps=tuple(phase_effective_gaps),
+        actual_min_gap=actual_min_gap,
+        gap_relaxed=any(gap < config.min_temporal_gap for gap in phase_effective_gaps),
     )

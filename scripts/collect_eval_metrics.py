@@ -514,17 +514,16 @@ def main() -> None:
     if args.manifest is not None and not args.manifest.is_absolute():
         args.manifest = repo_root / args.manifest
     output_root = (args.output_root or (repo_root / "output")).resolve()
-    output_dir = (
-        args.output_dir
-        or (
-            output_root
-            / "reports"
-            / "libero-plus"
-            / "test560-split2026"
-            / f"opqd-seed-{args.opqd_train_seed:03d}"
-            / args.run_name
-        )
-    ).resolve()
+    default_report_dir = (
+        output_root
+        / "reports"
+        / "libero-plus"
+        / "test560-split2026"
+        / f"opqd-seed-{args.opqd_train_seed:03d}"
+    )
+    if args.run_name not in ("", "default"):
+        default_report_dir /= args.run_name
+    output_dir = (args.output_dir or default_report_dir).resolve()
     selected_models = [METHOD_TO_MODEL.get(value, value) for value in args.methods]
     snapshot = build_snapshot(
         repo_root,

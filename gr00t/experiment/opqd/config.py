@@ -10,8 +10,8 @@ class OPQDSelectionConfig:
     """State budget and weighting used by the v2 sparse update."""
 
     phase_bins: int = 4
-    priority_per_phase: int = 4
-    random_per_phase: int = 4
+    priority_per_phase: int = 2
+    random_per_phase: int = 2
     min_temporal_gap: int = 4
     alpha_q: float = 1.0
     beta_r: float = 1.0

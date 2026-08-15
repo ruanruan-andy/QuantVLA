@@ -65,7 +65,7 @@ class EvalMetricsTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            totals = benchmark_totals(root)
+            totals = benchmark_totals(root, manifest)
             self.assertEqual(totals["libero-plus"], {
                 "libero_spatial": 42,
                 "libero_goal": 42,
@@ -131,7 +131,7 @@ class EvalMetricsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             row = suite_metrics(
                 pathlib.Path(directory),
-                "groot-gap-opqd-w4a8",
+                "groot-opqd-v2-w4a8",
                 "libero-plus",
                 "libero_goal",
                 total=42,
@@ -148,12 +148,14 @@ class EvalMetricsTest(unittest.TestCase):
                 output_root
                 / "eval"
                 / "libero-plus"
+                / "test560-split2026"
                 / "fp16"
                 / "libero_spatial"
                 / "paper-v1"
             )
-            suite_dir.mkdir(parents=True)
-            (suite_dir / "episodes.jsonl").write_text(
+            metrics_dir = suite_dir / "metrics"
+            metrics_dir.mkdir(parents=True)
+            (metrics_dir / "episodes.jsonl").write_text(
                 json.dumps({"task_index": 1, "success": True, "error": None}) + "\n",
                 encoding="utf-8",
             )
@@ -170,7 +172,7 @@ class EvalMetricsTest(unittest.TestCase):
             )
             self.assertEqual(row["completed"], 1)
             self.assertEqual(row["data_state"], "partial")
-            self.assertEqual(row["episodes_path"], str(suite_dir / "episodes.jsonl"))
+            self.assertEqual(row["episodes_path"], str(metrics_dir / "episodes.jsonl"))
 
 
 if __name__ == "__main__":

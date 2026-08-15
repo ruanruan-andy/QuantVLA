@@ -24,8 +24,8 @@ beta_r: 1.0
 weight_min: 0.5
 weight_max: 2.0
 phase_bins: 4
-priority_per_phase: 4
-random_per_phase: 4
+priority_per_phase: 2
+random_per_phase: 2
 min_temporal_gap: 4
 
 lambda_anchor: 0.1
@@ -34,4 +34,6 @@ anchor_batch_size: 4
 clean_anchor_rollout_horizon: 4
 warmup_steps: 50
 save_every_steps: 70
+keep_last_checkpoints: 2
+save_timestep_scores: false
 resume: true

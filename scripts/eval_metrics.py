@@ -199,23 +199,35 @@ def model_result_dir(
     method = MODEL_TO_METHOD.get(model, model)
     if benchmark == "libero-plus":
         method_path = (
-            pathlib.Path("opqd-v2") / f"seed-{opqd_train_seed:03d}"
+            pathlib.Path("opqd-v2-s16") / f"seed-{opqd_train_seed:03d}"
             if method == "quantvla-opqd"
             else pathlib.Path(method)
         )
-        normalized = (
+        suite_root = (
             root
             / "eval"
             / "libero-plus"
             / "test560-split2026"
             / method_path
             / suite
-            / run_name
         )
     else:
-        normalized = root / "eval" / benchmark / method / suite / run_name
+        suite_root = root / "eval" / benchmark / method / suite
+    normalized = suite_root if run_name in ("", "default") else suite_root / run_name
+    old_default = suite_root / "default"
+    has_new_direct_result = (suite_root / "metrics" / "episodes.jsonl").exists() or (
+        suite_root / "episodes.jsonl"
+    ).exists()
+    if (
+        normalized == suite_root
+        and old_default.exists()
+        and not has_new_direct_result
+    ):
+        return old_default
     if normalized.exists() or not legacy_fallback:
         return normalized
+    if old_default.exists():
+        return old_default
     return repo_root / "output" / benchmark / model / suite
 
 
@@ -246,10 +258,13 @@ def model_episode_paths(
         opqd_train_seed=opqd_train_seed,
         legacy_fallback=legacy_fallback,
     )
-    direct_path = suite_dir / "episodes.jsonl"
-    if direct_path.exists():
-        return [direct_path]
-    return sorted(suite_dir.glob("*/episodes.jsonl"))
+    direct_paths = [suite_dir / "metrics" / "episodes.jsonl", suite_dir / "episodes.jsonl"]
+    for direct_path in direct_paths:
+        if direct_path.exists():
+            return [direct_path]
+    category_paths = list(suite_dir.glob("*/metrics/episodes.jsonl"))
+    category_paths.extend(suite_dir.glob("*/episodes.jsonl"))
+    return sorted(set(category_paths))
 
 
 def load_model_records(
@@ -339,7 +354,9 @@ def suite_metrics(
         opqd_train_seed=opqd_train_seed,
         legacy_fallback=legacy_fallback,
     )
-    summary_path = suite_dir / "summary.json"
+    summary_path = suite_dir / "metrics" / "summary.json"
+    if not summary_path.exists():
+        summary_path = suite_dir / "summary.json"
     summary, summary_error = _load_json_object(summary_path)
     summary_completed = None if summary is None else summary.get("completed_episodes")
     warnings: list[str] = []
