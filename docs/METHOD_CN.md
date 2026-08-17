@@ -1,108 +1,193 @@
-# QuantVLA-OPQD 方法
+# QuantVLA-OPQD-v2 方法
 
-## 1. 研究问题与对照
+## 1. 方法概览
 
-目标是在不改动 GR00T N1.5 主体结构的前提下，修复 W4A8 QuantVLA 在 LIBERO-Plus 分布偏移状态上的动作误差。
+QuantVLA-OPQD-v2 是一个面向量化视觉-语言-动作模型的**在线稀疏蒸馏**方法。它以冻结的全精度策略作为教师，以 W4A8 QuantVLA 作为学生；学生先在目标环境中自主执行，再仅在少量、具有代表性的访问状态上接受教师监督。训练只更新学生 action head 中注意力投影的 LoRA 参数，不更新视觉/语言 backbone、基础 action head 权重、量化参数或教师参数。
 
-| 方法 | 权重 | 训练 | 作用 |
-|---|---|---|---|
-| FP16 | 全精度 | 否 | 精度参考线 |
-| QuantVLA | W4A8 + ATM + OHB | 否 | 原始量化方法 |
-| QuantVLA-OPQD | QuantVLA + action-head LoRA | 是 | 本文方法 |
+方法由四个相互衔接的部分组成：
 
-OPQD 不使用离线 expert action 标签，也没有 Uniform-KD 分支。教师监督来自 FP16 模型在学生实际访问状态上的在线预测。
+1. 学生策略产生完整的 on-policy 轨迹；
+2. 用教师与学生在同一状态、同一 diffusion 初始噪声下的动作差异定义量化偏差与未来风险；
+3. 在四个时间阶段内，以“高分状态 + 随机状态”的固定配额选择 $16$ 个蒸馏状态；
+4. 对这些状态进行加权动作蒸馏，并用 clean anchor 抑制目标域适配造成的遗忘。
 
-## 2. Shared-560 目标域协议
+本文中的 OPQD 特指上述“on-policy 轨迹、四阶段选择、加权蒸馏与 clean anchor”组成的实现。它不是离线行为克隆：监督目标由教师在学生实际访问到的状态上在线生成。
 
-`scripts/build_libero_plus_shared_manifest.py` 在每个 suite、七种 OOD category 内按 task index 排序并取前 20 条：
+## 2. 记号与模型
 
-| Manifest | 每 suite/category | 每 suite | 四 suite |
-|---|---:|---:|---:|
-| Shared-560 first-20 | 20 | 140 | 560 |
+设冻结的全精度教师为 $f_T$，量化学生为 $f_S$。学生由固定的量化基础参数 $\theta_Q$ 与可训练 LoRA 参数 $\phi$ 组成，即 $f_S(\theta_Q,\phi)$。教师参数 $\theta_T$、学生基础参数 $\theta_Q$ 与量化配置在训练中均保持冻结，只有 $\phi$ 被优化。
 
-manifest 保存显式 task IDs、category、difficulty 与 `train_eval_relation=same_task_ids`。OPQD train 和三种方法 eval 使用完全相同的 560 个 task ID 和 initial state 0；train seed 为 0/1/2，三种方法的 eval seed 固定为 2026。
+一次学生执行得到长度为 $T$ 的轨迹：
 
-因此本文研究的是目标域 same-task transductive adaptation：基础模型从 Standard LIBERO 迁移到 LIBERO-Plus OOD 分类，OPQD 可以在目标任务上采集无标签 rollout。它不代表对未见 LIBERO-Plus task ID 的 held-out-task generalization。
+$$
+\mathcal{T}=\left\{\left(o_t,\xi_t,\mathbf{A}_t^S,\mathbf{A}_t^T\right)\right\}_{t=0}^{T-1}.
+$$
 
-## 3. 完整 student-on-policy rollout
+其中：
 
-每个训练 episode：
+- $t$ 是环境时间步；
+- $o_t$ 是学生在第 $t$ 步实际观察到的多模态状态，包括第三视角图像、腕部图像、机器人状态和语言指令；
+- $\xi_t$ 是该时间步生成 diffusion action chunk 时使用的初始高斯噪声；
+- $\mathbf{A}_t^S$ 与 $\mathbf{A}_t^T$ 分别是学生和教师的预测 action chunk；
+- $T$ 是实际 rollout 长度：任务成功时提前结束，否则在 suite 对应的 horizon 结束。
 
-1. 在 LIBERO-Plus Shared-560 重置一个 task；
-2. 学生 QuantVLA 执行动作并决定后续访问状态；
-3. 在每个访问状态上，FP16 教师与学生使用同一份 diffusion initial noise；
-4. 记录教师/学生动作，直到成功或 suite horizon。
+对同一 $o_t$，教师和学生复用相同的 $\xi_t$。因此二者差异主要来自量化与学生 LoRA 参数，而不会被不同 diffusion 采样噪声混入。
 
-默认 horizon 为 spatial 220、object 280、goal 300、libero_10 520。`episode_success` 是环境真实终止结果，不再用短 rollout 是否终止来冒充成功率。
+LIBERO 每一步只执行 action chunk 的第一个动作。记该动作的连续控制维数为 $d=7$，包括 $x,y,z,\mathrm{roll},\mathrm{pitch},\mathrm{yaw}$ 和 gripper；记 action chunk 中第一个动作分别为 $\mathbf a_t^S\in\mathbb{R}^{d}$ 与 $\mathbf a_t^T\in\mathbb{R}^{d}$。
 
-## 4. 状态评分
+## 3. Student-on-policy 轨迹采集
 
-对 timestep (t)，只比较实际执行的 action chunk 第一个动作、前七个连续维度：
+每个训练 episode 从目标环境重置后开始。对每个时间步，学生 $f_S$ 根据 $o_t$ 生成 $\mathbf{A}_t^S$，并将第一个动作 $\mathbf a_t^S$ 发送到环境；教师 $f_T$ 在完全相同的 $o_t$ 和 $\xi_t$ 上生成 $\mathbf{A}_t^T$，但不控制环境。环境的后续状态由学生动作决定，因此训练数据来自学生当前策略实际会访问的状态分布。
 
-\[
-q_t=\frac{1}{7}\lVert a_t^S-a_t^T\rVert_2^2.
-\]
+这种设计使蒸馏目标与部署时的分布一致：如果量化学生在某个偏移状态进入错误区域，后续状态仍会被记录并可成为蒸馏候选。轨迹收集阶段不保留计算图；在状态被选中后，才重新计算其学生 action head 前向并进行反向传播。
 
-再计算未来局部风险，默认 (H=4,\gamma=0.9)：
+## 4. 量化偏差与未来风险
 
-\[
-r_t=\frac{\sum_{j=0}^{H}\gamma^j q_{t+j}}
-{\sum_{j=0}^{H}\gamma^j},
-\]
+### 4.1 即时量化偏差
 
-轨迹尾部按实际剩余长度截断并重新归一化。(q_t) 表示当前量化动作偏差，(r_t) 表示短期内持续出现偏差的程度。
+对每个时间步，定义学生与教师执行动作之间的均方误差：
 
-## 5. 四阶段稀疏选择
+$$
+q_t=\frac{1}{d}\left\|\mathbf a_t^S-\mathbf a_t^T\right\|_2^2.
+$$
 
-将实际轨迹等比例分为 Early、Mid-1、Mid-2、Late 四段。在每段内部对 (q,r) 做带平均 tie rank 的 percentile ranking：
+其中 $q_t\geq0$ 为第 $t$ 个状态的即时量化偏差；$d=7$ 是动作维数；$\|\cdot\|_2$ 是 Euclidean norm。较大的 $q_t$ 表示学生在当前状态上与全精度教师分歧更大。
 
-\[
-s_t=\alpha\,rank(q_t)+\beta\,rank(r_t),\qquad \alpha=\beta=1.
-\]
+### 4.2 折扣未来风险
 
-每阶段选择：
+仅按 $q_t$ 选择状态会偏向单步尖峰。为强调持续性偏差，OPQD 为每一步计算一个截断的未来折扣平均：
 
-- 2 个最高 (s_t) 的 priority states；
-- 2 个可复现随机 states；
-- 合计 4 个，四阶段固定为 16 个。
+$$
+r_t=
+\frac{\sum_{j=0}^{J_t}\gamma^j q_{t+j}}
+     {\sum_{j=0}^{J_t}\gamma^j},
+\qquad
+J_t=\min\left(H,T-1-t\right).
+$$
 
-`min_temporal_gap=4` 是目标间隔：选中 10 后，下一候选至少为 14，避免相邻帧重复监督。selector 在每个阶段内依次尝试 gap 4、3、2、1，直到该阶段恰好补齐 2 个 priority 和 2 个 random；候选绝不跨阶段补位、不重复。轨迹少于 16 个状态时直接报错，不能产生伪完整样本。输出记录每阶段实际 gap、数量和 `selection_valid`，因此固定配额和约束放宽都可审计。
+其中 $r_t$ 是时间步 $t$ 的局部未来风险；$H$ 是最大前瞻偏移，默认 $H=4$，故每个完整窗口包含当前 $q_t$ 与最多 $4$ 个未来项；$\gamma$ 是折扣系数，默认 $\gamma=0.9$；$J_t$ 使窗口在轨迹末尾自动截断。分母对有效窗口重新归一化，避免末尾状态因可见未来步数较少而系统性低分。
 
-这种设计不是原始稠密 OPD 的复刻，而是本文的计算受限稀疏蒸馏假设：阶段覆盖负责轨迹多样性，高分状态负责困难性，随机状态降低纯 top-k 的选择偏差。
+## 5. 四阶段、固定配额的状态选择
 
-## 6. 蒸馏目标与更新
+### 5.1 时间阶段
 
-入选状态的权重为：
+将长度为 $T$ 的轨迹按相对时间划为 $P=4$ 个阶段：Early、Mid-1、Mid-2 与 Late。零起始索引 $t$ 的阶段编号为：
 
-\[
-w_t=clip\left(\frac{s_t}{mean(s)},0.5,2.0\right),
-\]
+$$
+\pi(t)=\min\left(P-1,\left\lfloor\frac{Pt}{T}\right\rfloor\right).
+$$
 
-随后归一化使权重和为 1。主损失仍比较共享 noise 下、实际执行动作位置的七维教师/学生 MSE。每个 episode 对同一批 16 个状态做 5 次 optimizer update。
+其中 $\pi(t)\in\{0,1,2,3\}$ 是时间步 $t$ 的阶段编号，$P$ 是阶段数。阶段划分依赖相对进度而不是固定绝对步数，因此可适配成功提前结束或不同 horizon 的轨迹。
 
-只有 action-head attention 的 Q/K/V linear layers 注入 LoRA；backbone、量化参数和教师冻结。默认 LoRA rank 16、alpha 32、dropout 0.05，AdamW 学习率 (5\times10^{-5})、weight decay 0.01、50-step warmup 后 cosine decay、gradient clip 1.0。
+### 5.2 阶段内优先级分数
 
-## 7. Clean anchor
+在每一个阶段内部，分别对 $q_t$ 和 $r_t$ 做 percentile rank；相同数值使用平均 rank。记 $\operatorname{rank}_p(x_t)\in[0,1]$ 为状态 $t$ 在阶段 $p$ 内的 percentile rank，则优先级分数为：
 
-为限制 OOD 适配破坏 Standard LIBERO，每轮从 clean LIBERO 采集最多 4 个教师/学生状态，放入容量 256 的 replay；每次更新随机取 4 个，以 `lambda_anchor=0.1` 加入损失。它是训练正则项，不是 validation，也不参与 checkpoint 选择。
+$$
+s_t=\alpha_q\operatorname{rank}_{\pi(t)}(q_t)
+   +\beta_r\operatorname{rank}_{\pi(t)}(r_t).
+$$
 
-## 8. 可复现性与输出
+其中 $s_t$ 是选择分数；$\alpha_q$ 和 $\beta_r$ 分别控制即时偏差与未来风险的重要性，默认均为 $1$。阶段内排序使各阶段的分数尺度可比较，而不会因为后期或前期的绝对误差范围更大而垄断全部预算。
 
-训练 seed 同时控制 task schedule、随机状态选择、initial-state 抽样和 diffusion noise。checkpoint 保存 LoRA、optimizer、scheduler、Python/NumPy/Torch RNG 与 task schedule。`run.json` 记录方法、代码版本、host、GPU、端口、manifest 路径/哈希与完整配置；train/eval 的 manifest SHA256 必须一致。`metrics.jsonl` 默认只记录入选状态的 q/r、索引、phase/reason、配额校验、success、loss、梯度与耗时，只有诊断时才显式保存全轨迹 q/r。checkpoint 统一放在 `checkpoints/`，默认仅保留最近 2 个完整 checkpoint。
+### 5.3 固定配额与时间间隔
 
-## 9. 可行性与局限
+对每个阶段，OPQD 选择 $k_p=2$ 个按 $s_t$ 降序的 priority states，以及 $k_r=2$ 个从剩余候选中随机采样的 random states。因此每阶段恰有 $k_p+k_r=4$ 个状态，整条轨迹固定得到：
 
-可行性依据是：量化误差能直接在共享噪声下测量；LoRA 只调整 action head，训练参数和遗忘风险较小；student-on-policy 完整轨迹能覆盖接触、搬运、放置和 late states；显式 manifest 使 train/eval 的同任务关系可审计。
+$$
+K=P(k_p+k_r)=4(2+2)=16
+$$
 
-仍需实验验证的局限：
+个状态。
 
-- (q/r) 衡量教师差异，不等同于任务成功的重要性；
-- 每步同时跑教师与学生，完整 episode 的训练成本高；
-- 16、四阶段、gap 4、5 updates 都是待消融的设计选择；
-- 仅监督 action chunk 的第一个动作，未利用整个 action horizon；
-- 纯学生 rollout 在很差的量化策略下可能长期停留于失败区域；
-- 当前无 validation，最终 checkpoint 是固定训练预算而非验证集最优；
-- train/eval 共用 task IDs 会高估对未见任务的迁移能力，只能解释为目标域适配；
-- seed 0 只用于打通主链路，正式结论必须来自三组 train seed 和固定 Shared-560 eval seed。
+为避免相邻视频帧产生高度冗余的监督，任意新候选 $i$ 必须与当前已选集合 $\mathcal I$ 满足：
 
-因此，Shared-560 可以回答 OPQD 能否修复已知目标任务上的量化退化，但若要声称 held-out-task generalization，仍需另设不相交测试集。
+$$
+|i-j|\geq g,\qquad \forall j\in\mathcal I.
+$$
+
+其中 $g$ 是目标最小时间间隔，默认 $g=4$；$i,j$ 是轨迹索引。选择按阶段顺序进行，且约束对之前阶段已选状态同样生效。
+
+若某个阶段在当前 $g$ 下无法凑齐其 $2+2$ 配额，selector 只在该阶段内依次尝试 $g=4,3,2,1$，直到配额补齐。它不会将名额转移给其他阶段，也不会重复选取同一状态。若轨迹总长度少于 $K=16$，或某一阶段不足以提供其配额，训练直接报错而不是生成不完整样本。
+
+随机状态并非无约束噪声：它们仍需满足阶段配额、去重和有效 gap。其作用是避免始终蒸馏 top-$k$ 高误差状态而造成的选择偏差，并保留不同难度的目标域状态。
+
+## 6. 稀疏加权动作蒸馏
+
+设最终选择的状态索引集合为 $\mathcal I$，满足 $|\mathcal I|=K=16$。对每个 $i\in\mathcal I$，以选中的优先级分数构造截断权重：
+
+$$
+w_i=\operatorname{clip}\left(
+\frac{s_i}{\max\left(\frac{1}{K}\sum_{j\in\mathcal I}s_j,\epsilon\right)},
+w_{\min},w_{\max}
+\right),
+\qquad
+\bar w_i=\frac{w_i}{\sum_{j\in\mathcal I}w_j}.
+$$
+
+其中 $w_i$ 是裁剪前归一化后的状态权重，$\bar w_i$ 是用于损失的归一化权重；$\epsilon=10^{-8}$ 防止除零；$w_{\min}=0.5$、$w_{\max}=2.0$ 限制单个状态的影响。权重只由 rollout 后计算的分数确定，在反向传播中视为常数。
+
+对入选状态，代码从采集时保存的 observation 重新计算学生 backbone feature 与 action input；同时复用保存的教师动作和 diffusion 噪声 $\xi_i$。单状态蒸馏损失为：
+
+$$
+\ell_i=
+\frac{1}{d}\left\|\hat{\mathbf a}_i^S(\xi_i)-\mathbf a_i^T(\xi_i)\right\|_2^2.
+$$
+
+其中 $\hat{\mathbf a}_i^S(\xi_i)$ 是带梯度重新计算得到的学生第一个动作；$\mathbf a_i^T(\xi_i)$ 是在同一噪声下缓存的教师第一个动作；$d=7$。主蒸馏目标为：
+
+$$
+\mathcal L_{\mathrm{OPQD}}=
+\sum_{i\in\mathcal I}\bar w_i\ell_i.
+$$
+
+目标域主损失只对 $16$ 个状态反传，而不是对整条轨迹的每一步都反传；但候选评分仍基于完整 student-on-policy 轨迹，因此同时保留了运行时效率与状态覆盖。
+
+实现时，$16$ 个主状态以各自的 $\bar w_i$ 逐个调用反向传播；这与先显式求和得到 $\mathcal L_{\mathrm{OPQD}}$ 再反传在数值上等价。clean anchor 的额外反传见下一节。
+
+## 7. Clean anchor 与总目标
+
+仅用目标域稀疏蒸馏更新 LoRA 可能导致学生偏离原有的 clean-domain 行为。为此，OPQD 额外从 clean LIBERO 环境采集短轨迹，并将其状态缓存到容量为 $R=256$ 的 replay buffer。每次更新从 buffer 中均匀采样至多 $B=4$ 个 anchor 状态。
+
+对 anchor 集合 $\mathcal B$，使用与主蒸馏相同的教师—学生执行动作 MSE：
+
+$$
+\mathcal L_{\mathrm{anchor}}
+=\frac{1}{|\mathcal B|}
+\sum_{b\in\mathcal B}
+\frac{1}{d}
+\left\|\hat{\mathbf a}_b^S(\xi_b)-\mathbf a_b^T(\xi_b)\right\|_2^2.
+$$
+
+其中 $\mathcal B$ 是当前采样的 clean anchor 状态集合；$b$ 是其中一个状态索引；$\xi_b$ 是该状态保存的初始噪声。总训练目标为：
+
+$$
+\mathcal L=
+\mathcal L_{\mathrm{OPQD}}
++\lambda_{\mathrm{anchor}}\mathcal L_{\mathrm{anchor}}.
+$$
+
+其中 $\lambda_{\mathrm{anchor}}=0.1$ 控制 clean 保持项的强度。clean anchor 是正则化项，不是 validation，也不用于选择最佳 checkpoint；其短 rollout 最多采集 $4$ 步，因此其是否完成任务不具有成功率含义。
+
+实现时，若 replay 非空，则每次 optimizer update 从中采样 $|\mathcal B|=\min(4,|\mathrm{replay}|)$ 个状态，并以 $\lambda_{\mathrm{anchor}}/|\mathcal B|$ 逐个反传。因此它与上式的 $\lambda_{\mathrm{anchor}}\mathcal L_{\mathrm{anchor}}$ 完全等价，同时在主损失之外额外引入至多 $4$ 个 anchor 状态。
+
+## 8. 可训练参数与优化
+
+LoRA 仅插入 action head 注意力模块中的线性 $Q/K/V$ 投影，即名称包含 `action_head` 且包含 `to_q`、`to_k` 或 `to_v` 的 Linear 层。其余模块均冻结，包括语言/视觉 backbone、action head 的基础权重、量化层和全精度教师。
+
+默认 LoRA 配置为 rank $r=16$、缩放系数 $\alpha_{\mathrm{LoRA}}=32$、dropout $0.05$、无 bias。每采集一条 trajectory，对相同的 $K=16$ 个主状态执行 $U=5$ 次 optimizer update；每次 update 都重新从 clean replay 采样 anchor。
+
+优化器为 AdamW，学习率为 $5\times10^{-5}$，weight decay 为 $0.01$。学习率先进行 $50$ 个 step 的线性 warmup，随后采用 cosine decay；梯度范数裁剪阈值为 $1.0$。这些更新只改变 $\phi$。checkpoint 包含 LoRA adapter；`trainer_state.pt` 还保存 optimizer、scheduler、Python sampler、diffusion noise generator、Torch RNG、NumPy RNG 与 task schedule，以支持确定性恢复。
+
+## 9. 单个 episode 的算法流程
+
+给定当前 LoRA 参数 $\phi$，一次 OPQD 更新按以下顺序进行：
+
+1. 用学生 $f_S(\theta_Q,\phi)$ 执行目标环境，记录完整轨迹 $\mathcal T$；教师只在这些已访问状态上推理。
+2. 对所有 $t=0,\ldots,T-1$ 计算 $q_t$ 与 $r_t$，并在各时间阶段得到 $s_t$。
+3. 在每阶段按固定 $2$ 个 priority 与 $2$ 个 random 配额、带 gap 约束地选出集合 $\mathcal I$。
+4. 缓存并重新物化 $\mathcal I$ 中的状态，计算加权损失 $\mathcal L_{\mathrm{OPQD}}$。
+5. 采集或复用 clean replay，从 $\mathcal B$ 计算 $\mathcal L_{\mathrm{anchor}}$。
+6. 对总目标 $\mathcal L$ 反向传播，裁剪梯度并更新 LoRA 参数 $\phi$；重复 $U=5$ 次。
+
+该过程使状态选择、权重分配和参数更新都由学生当前访问轨迹决定，同时通过显式阶段覆盖、随机补充和 clean anchor 控制稀疏蒸馏的偏差与遗忘。

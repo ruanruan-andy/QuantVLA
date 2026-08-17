@@ -65,11 +65,17 @@ output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/<suite>/
 ## 4. suzhou-C 四 suite 并行
 
 ```bash
-for spec in 'libero_spatial 0 31000 31001' 'libero_object 1 31010 31011' 'libero_goal 2 31020 31021' 'libero_10 3 31030 31031'; do
-  set -- $spec
-  tmux new-session -d -s "opqd-s0-$1" \
-    "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite $1 --gpu $2 --env-port $3 --clean-env-port $4 --seed 0"
-done
+tmux new-session -d -s opqd-s0-spatial \
+  "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite libero_spatial --gpu 0 --env-port 31000 --clean-env-port 31001 --seed 0"
+
+tmux new-session -d -s opqd-s0-object \
+  "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite libero_object --gpu 1 --env-port 31010 --clean-env-port 31011 --seed 0"
+
+tmux new-session -d -s opqd-s0-goal \
+  "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite libero_goal --gpu 2 --env-port 31020 --clean-env-port 31021 --seed 0"
+
+tmux new-session -d -s opqd-s0-libero10 \
+  "cd /lumos-vePFS/suda/ruan/QuantVLA && ./train_quantvla_opqd.sh --suite libero_10 --gpu 3 --env-port 31030 --clean-env-port 31031 --seed 0"
 ```
 
 ```bash
@@ -89,14 +95,62 @@ tail -f output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_s
 suite、seed、manifest 和关键超参必须一致；程序恢复 adapter、optimizer、scheduler、RNG 与 task schedule。
 
 ## 6. 评测 adapter
-
+libero_spatial eval
 ```bash
+tmux new-session -s spatial_eval
+
+cd /lumos-vePFS/suda/ruan/QuantVLA
 ./eval_quantvla_opqd.sh \
   --benchmark libero-plus --suite libero_spatial \
   --gpu 4 --port 31240 \
   --checkpoint output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_spatial/checkpoints/step-000700 \
   --train-seed 0 --eval-seed 2026
+
+tmux attach -t spatial_eval
 ```
+
+libero_object eval
+```bash
+tmux new-session -s object_eval
+
+cd /lumos-vePFS/suda/ruan/QuantVLA
+./eval_quantvla_opqd.sh \
+  --benchmark libero-plus --suite libero_object \
+  --gpu 5 --port 31250 \
+  --checkpoint output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_object/checkpoints/step-000700 \
+  --train-seed 0 --eval-seed 2026
+
+tmux attach -t object_eval
+```
+
+libero_goal eval
+```bash
+tmux new-session -s goal_eval
+
+cd /lumos-vePFS/suda/ruan/QuantVLA
+./eval_quantvla_opqd.sh \
+  --benchmark libero-plus --suite libero_goal \
+  --gpu 6 --port 31260 \
+  --checkpoint output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_goal/checkpoints/step-000700 \
+  --train-seed 0 --eval-seed 2026
+
+tmux attach -t goal_eval
+```
+
+libero_10 eval
+```bash
+tmux new-session -s 10_eval
+
+cd /lumos-vePFS/suda/ruan/QuantVLA
+./eval_quantvla_opqd.sh \
+  --benchmark libero-plus --suite libero_10 \
+  --gpu 7 --port 31270 \
+  --checkpoint output/train/libero-plus/opqd-v2-s16-shared560-first20/seed-000/libero_10/checkpoints/step-000700 \
+  --train-seed 0 --eval-seed 2026
+
+tmux attach -t 10_eval
+```
+
 
 默认输出：
 
@@ -115,6 +169,7 @@ output/eval/libero-plus/shared560-first20/opqd-v2-s16/seed-000/<suite>/
 seed 1/2 同时改变训练 `--seed`、端口以及评测 `--train-seed`；三组 eval 都固定 `--eval-seed 2026`。
 
 ```bash
+cd /lumos-vePFS/suda/ruan/QuantVLA
 ./monitor_eval.sh --refresh-seconds 20 --opqd-train-seed 0
 ./collect_eval.sh --opqd-train-seed 0
 ./collect_eval.sh --opqd-train-seed 0 --require-complete

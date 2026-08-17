@@ -718,6 +718,65 @@ def train(config: TrainConfig) -> None:
     output_dir = Path(config.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     resume_checkpoint = _resolve_resume_checkpoint(config, output_dir)
+    if resume_checkpoint is not None:
+        completed_state = torch.load(
+            resume_checkpoint / "trainer_state.pt", map_location="cpu", weights_only=False
+        )
+        completed_episode = int(
+            completed_state.get("episode", completed_state.get("iteration", 0))
+        )
+        completed_optimizer_step = int(
+            completed_state.get(
+                "optimizer_step", completed_episode * config.updates_per_episode
+            )
+        )
+        if completed_episode >= config.num_rollout_episodes:
+            last_metric: dict[str, Any] = {}
+            metrics_path = output_dir / "metrics.jsonl"
+            if metrics_path.is_file():
+                for line in metrics_path.read_text(encoding="utf-8").splitlines():
+                    if line.strip():
+                        last_metric = json.loads(line)
+
+            previous_status: dict[str, Any] = {}
+            status_path = output_dir / "status.json"
+            if status_path.is_file():
+                try:
+                    previous_status = json.loads(status_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    previous_status = {}
+            complete_status = {
+                "status": "complete",
+                "method": "quantvla-opqd-v2",
+                "suite": config.task_suite_name,
+                "seed": config.seed,
+                "episode": completed_episode,
+                "episodes_total": config.num_rollout_episodes,
+                "optimizer_step": completed_optimizer_step,
+                "optimizer_steps_total": config.max_train_steps,
+                "last_episode_success": last_metric.get("episode_success"),
+                "selected_state_count": last_metric.get("selected_state_count", 0),
+                "target_min_gap": last_metric.get(
+                    "target_min_gap", config.min_temporal_gap
+                ),
+                "phase_effective_gaps": last_metric.get("phase_effective_gaps"),
+                "actual_min_gap": last_metric.get("actual_min_gap"),
+                "selection_valid": last_metric.get("selection_valid"),
+                "eta_seconds": 0.0,
+                "host": previous_status.get("host", socket.gethostname()),
+                "cuda_visible_devices": previous_status.get(
+                    "cuda_visible_devices", os.environ.get("CUDA_VISIBLE_DEVICES")
+                ),
+                "updated_at": time.time(),
+            }
+            status_tmp = output_dir / "status.json.tmp"
+            status_tmp.write_text(json.dumps(complete_status, indent=2), encoding="utf-8")
+            status_tmp.replace(status_path)
+            print(
+                f"Training already complete at episode {completed_episode}, optimizer step "
+                f"{completed_optimizer_step}; leaving run metadata unchanged."
+            )
+            return
     serialized_config = dataclasses.asdict(config)
     serialized_config["resolved_resume_checkpoint"] = (
         str(resume_checkpoint) if resume_checkpoint is not None else None
