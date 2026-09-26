@@ -39,21 +39,21 @@ MODELS = OrderedDict(
             },
         ),
         (
-            "groot-opqd-v2-w4a8",
+            "groot-pivot_q-v2-w4a8",
             {
-                "label": "GR00T N1.5 · QuantVLA-OPQD W4A8",
+                "label": "GR00T N1.5 · QuantVLA-PIVOT-Q W4A8",
                 "precision": "W4A8 + PEFT",
-                "quantization_backend": "fake-quant + OPQD",
+                "quantization_backend": "fake-quant + PIVOT-Q",
             },
         ),
     )
 )
-PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-opqd-v2-w4a8")
+PRIMARY_MODELS = ("groot-fp16", "groot-quantvla-w4a8", "groot-pivot_q-v2-w4a8")
 METHOD_TO_MODEL = OrderedDict(
     (
         ("fp16", "groot-fp16"),
         ("quantvla", "groot-quantvla-w4a8"),
-        ("quantvla-opqd", "groot-opqd-v2-w4a8"),
+        ("quantvla-pivot_q", "groot-pivot_q-v2-w4a8"),
     )
 )
 MODEL_TO_METHOD = {model: method for method, model in METHOD_TO_MODEL.items()}
@@ -192,15 +192,15 @@ def model_result_dir(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
-    opqd_train_seed: int = 0,
+    pivot_q_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> pathlib.Path:
     root = (output_root or (repo_root / "output")).resolve()
     method = MODEL_TO_METHOD.get(model, model)
     if benchmark == "libero-plus":
         method_path = (
-            pathlib.Path("opqd-v2-s16") / f"seed-{opqd_train_seed:03d}"
-            if method == "quantvla-opqd"
+            pathlib.Path("pivot_q-v2-s16") / f"seed-{pivot_q_train_seed:03d}"
+            if method == "quantvla-pivot_q"
             else pathlib.Path(method)
         )
         suite_root = (
@@ -239,7 +239,7 @@ def model_episode_paths(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
-    opqd_train_seed: int = 0,
+    pivot_q_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> list[pathlib.Path]:
     """Return the direct result file or category-specific result files for a suite.
@@ -255,7 +255,7 @@ def model_episode_paths(
         suite,
         output_root=output_root,
         run_name=run_name,
-        opqd_train_seed=opqd_train_seed,
+        pivot_q_train_seed=pivot_q_train_seed,
         legacy_fallback=legacy_fallback,
     )
     direct_paths = [suite_dir / "metrics" / "episodes.jsonl", suite_dir / "episodes.jsonl"]
@@ -312,7 +312,7 @@ def suite_metrics(
     *,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
-    opqd_train_seed: int = 0,
+    pivot_q_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     paths = model_episode_paths(
@@ -322,7 +322,7 @@ def suite_metrics(
         suite,
         output_root=output_root,
         run_name=run_name,
-        opqd_train_seed=opqd_train_seed,
+        pivot_q_train_seed=pivot_q_train_seed,
         legacy_fallback=legacy_fallback,
     )
     records, malformed, duplicates = load_model_records(paths, benchmark)
@@ -351,7 +351,7 @@ def suite_metrics(
         suite,
         output_root=output_root,
         run_name=run_name,
-        opqd_train_seed=opqd_train_seed,
+        pivot_q_train_seed=pivot_q_train_seed,
         legacy_fallback=legacy_fallback,
     )
     summary_path = suite_dir / "metrics" / "summary.json"
@@ -689,8 +689,8 @@ def _discover_processes() -> list[dict[str, Any]]:
             kind = "server"
             adapter = _argument(tokens, "--adapter-path")
             model = environment.get("GR00T_MODEL_VARIANT")
-            if adapter and "gap-opqd" in adapter:
-                model = "groot-gap-opqd-w4a8"
+            if adapter and "pivot-q" in adapter:
+                model = "groot-pivot-q-w4a8"
             suite = _suite_from_model_path(_argument(tokens, "--model_path"))
         try:
             port = int(_argument(tokens, "--port") or environment.get("GR00T_PORT", "0"))
@@ -782,7 +782,7 @@ def build_snapshot(
     selected_benchmarks: tuple[str, ...] | list[str] | None = None,
     output_root: pathlib.Path | None = None,
     run_name: str = "default",
-    opqd_train_seed: int = 0,
+    pivot_q_train_seed: int = 0,
     legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     selected_models = tuple(selected_models or PRIMARY_MODELS)
@@ -809,7 +809,7 @@ def build_snapshot(
                     eta_window,
                     output_root=output_root,
                     run_name=run_name,
-                    opqd_train_seed=opqd_train_seed,
+                    pivot_q_train_seed=pivot_q_train_seed,
                     legacy_fallback=legacy_fallback,
                 )
                 for suite in SUITES
@@ -840,7 +840,7 @@ def build_snapshot(
         "repo_root": str(repo_root),
         "output_root": str((output_root or (repo_root / "output")).resolve()),
         "run_name": run_name,
-        "opqd_train_seed": opqd_train_seed,
+        "pivot_q_train_seed": pivot_q_train_seed,
         "legacy_fallback": legacy_fallback,
         "eta_window": eta_window,
         "sample_manifest": load_sample_manifest(repo_root, manifest_path),

@@ -3,7 +3,7 @@
 本目录只保留入口；完整且唯一维护的教程位于仓库根目录：
 
 - `docs/FP16_QUANTVLA_EVAL_CN.md`：FP16 与 QuantVLA eval；
-- `docs/QUANTVLA_OPQD_TRAIN_EVAL_CN.md`：OPQD train、resume 与 eval；
+- `docs/QUANTVLA_PIVOT_Q_TRAIN_EVAL_CN.md`：PIVOT-Q train、resume 与 eval；
 - `docs/METHOD_CN.md`：当前方法定义；
 - `docs/EXPERIMENTS_CN.md`：正式实验矩阵与记录表。
 
@@ -21,8 +21,8 @@ Shared-560: configs/libero_plus/shared560-first20.json
 ```bash
 ./eval_fp16.sh --help
 ./eval_quantvla.sh --help
-./train_quantvla_opqd.sh --help
-./eval_quantvla_opqd.sh --help
+./train_quantvla_pivot_q.sh --help
+./eval_quantvla_pivot_q.sh --help
 ./monitor_eval.sh --once
 ./collect_eval.sh --require-complete
 ```

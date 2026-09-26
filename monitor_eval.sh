@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Default: FP16 vs QuantVLA vs OPQD-v2 on the disjoint Test-560 split.
+# Default: FP16 vs QuantVLA vs PIVOT-Q-v2 on the disjoint Test-560 split.
 # All additional arguments are forwarded to scripts/eval_monitor.py.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

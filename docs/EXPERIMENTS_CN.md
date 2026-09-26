@@ -4,9 +4,9 @@
 
 | 项目 | 设置 |
 |---|---|
-| Methods | FP16、QuantVLA W4A8、QuantVLA-OPQD |
+| Methods | FP16、QuantVLA W4A8、QuantVLA-PIVOT-Q |
 | Target tasks | Shared-560 first-20；每 suite/category 20；总计 560 |
-| Train | OPQD only；与 eval 共用 task IDs；每 suite 140 episodes |
+| Train | PIVOT-Q only；与 eval 共用 task IDs；每 suite 140 episodes |
 | Eval | 三种方法均在 Shared-560 上各跑 560 episodes |
 | Horizons | spatial 220 / object 280 / goal 300 / libero_10 520 |
 | Eval seed | 2026，所有方法固定 |
@@ -23,11 +23,11 @@
 |---|---:|---:|---:|---:|---:|---:|---:|
 | FP16 | eval-2026 | — | — | — | — | — | — |
 | QuantVLA | eval-2026 | — | — | — | — | — | — |
-| OPQD | 0 | — | — | — | — | — | — |
-| OPQD | 1 | — | — | — | — | — | — |
-| OPQD | 2 | — | — | — | — | mean±std | — |
+| PIVOT-Q | 0 | — | — | — | — | — | — |
+| PIVOT-Q | 1 | — | — | — | — | — | — |
+| PIVOT-Q | 2 | — | — | — | — | mean±std | — |
 
-| Category | FP16 | QuantVLA | OPQD mean±std | OPQD−Quant (pp) |
+| Category | FP16 | QuantVLA | PIVOT-Q mean±std | PIVOT-Q−Quant (pp) |
 |---|---:|---:|---:|---:|
 | Camera Viewpoints | — | — | — | — |
 | Robot Initial States | — | — | — | — |
@@ -69,11 +69,11 @@
 
 | 阶段 | 机器 | GPU | 任务 |
 |---|---|---|---|
-| 1 | suzhou-C | 0–3 | OPQD seed 0，Shared-560 四 suite |
+| 1 | suzhou-C | 0–3 | PIVOT-Q seed 0，Shared-560 四 suite |
 | 1 | suzhou-C | 4–7 | FP16 Shared-560，四 suite eval |
 | 1 | suzhou-I | 0–3 | QuantVLA Shared-560，四 suite eval |
-| 2 | suzhou-C/I | 空闲卡 | OPQD seed 1/2 train |
-| 3 | 任一空闲机 | 4 cards | OPQD checkpoints Shared-560 eval |
+| 2 | suzhou-C/I | 空闲卡 | PIVOT-Q seed 1/2 train |
+| 3 | 任一空闲机 | 4 cards | PIVOT-Q checkpoints Shared-560 eval |
 
 所有启动前重新检查 GPU、端口和现有进程。smoke 输出必须放在 `output/smoke/`，正式结果只能使用规范目录。
 
@@ -81,8 +81,8 @@
 
 | Date | Host:GPU | Method | Seed | Suite | Port(s) | Output | Status |
 |---|---|---:|---|---|---|---|---|
-| YYYY-MM-DD | suzhou-C:0 | OPQD train | 0 | spatial | 31000/31001 | `output/train/...` | planned |
+| YYYY-MM-DD | suzhou-C:0 | PIVOT-Q train | 0 | spatial | 31000/31001 | `output/train/...` | planned |
 | YYYY-MM-DD | suzhou-C:4 | FP16 eval | 2026 | spatial | 31100 | `output/eval/...` | planned |
 | YYYY-MM-DD | suzhou-I:0 | Quant eval | 2026 | spatial | 31200 | `output/eval/...` | planned |
 
-完整性判定：每个 method/seed 必须达到 manifest 规定数量、无重复 episode key、无 error、四 suite 和七 category 均齐全；OPQD train/eval 的 manifest SHA256 还必须完全一致。只有 `./collect_eval.sh --require-complete` 通过后才能填写最终表格。
+完整性判定：每个 method/seed 必须达到 manifest 规定数量、无重复 episode key、无 error、四 suite 和七 category 均齐全；PIVOT-Q train/eval 的 manifest SHA256 还必须完全一致。只有 `./collect_eval.sh --require-complete` 通过后才能填写最终表格。

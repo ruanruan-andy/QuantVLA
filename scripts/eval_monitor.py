@@ -18,7 +18,7 @@ from eval_metrics import CATEGORY_ORDER, DISPLAY_SUITE, build_snapshot, format_d
 METHODS = (
     ("groot-fp16", "FP16"),
     ("groot-quantvla-w4a8", "QuantVLA"),
-    ("groot-opqd-v2-w4a8", "OPQD-v2"),
+    ("groot-pivot_q-v2-w4a8", "PIVOT-Q-v2"),
 )
 SHORT_CATEGORY = {
     "Camera Viewpoints": "Cam",
@@ -213,7 +213,7 @@ def _gap_cell(status: dict[str, Any]) -> Text:
 
 
 def _training_table(output_root: pathlib.Path, seed: int) -> Table:
-    table = Table(title=f"OPQD-v2 train seed {seed}", box=box.SIMPLE, pad_edge=False)
+    table = Table(title=f"PIVOT-Q-v2 train seed {seed}", box=box.SIMPLE, pad_edge=False)
     table.add_column("Suite")
     table.add_column("State")
     table.add_column("Episode", justify="right")
@@ -227,7 +227,7 @@ def _training_table(output_root: pathlib.Path, seed: int) -> Table:
         output_root
         / "train"
         / "libero-plus"
-        / "opqd-v2-s16-shared560-first20"
+        / "pivot_q-v2-s16-shared560-first20"
         / f"seed-{seed:03d}"
     )
     now = time.time()
@@ -267,19 +267,19 @@ def _render(args: argparse.Namespace, repo_root: pathlib.Path) -> Group:
         selected_benchmarks=["libero-plus"],
         output_root=args.output_root,
         run_name=args.run_name,
-        opqd_train_seed=args.opqd_train_seed,
+        pivot_q_train_seed=args.pivot_q_train_seed,
         legacy_fallback=False,
     )
     return Group(
         _overview(snapshot),
         _suite_table(snapshot),
         _suite_category_table(snapshot),
-        _training_table(args.output_root.resolve(), args.opqd_train_seed),
+        _training_table(args.output_root.resolve(), args.pivot_q_train_seed),
     )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compact OPQD-v2 train/eval monitor")
+    parser = argparse.ArgumentParser(description="Compact PIVOT-Q-v2 train/eval monitor")
     parser.add_argument("--repo-root", type=pathlib.Path, default=None)
     parser.add_argument("--output-root", type=pathlib.Path, default=pathlib.Path("output"))
     parser.add_argument(
@@ -287,7 +287,7 @@ def parse_args() -> argparse.Namespace:
         type=pathlib.Path,
         default=pathlib.Path("configs/libero_plus/shared560-first20.json"),
     )
-    parser.add_argument("--opqd-train-seed", type=int, default=0)
+    parser.add_argument("--pivot_q-train-seed", type=int, default=0)
     parser.add_argument("--run-name", default="default")
     parser.add_argument("--eta-window", type=int, default=20)
     parser.add_argument(

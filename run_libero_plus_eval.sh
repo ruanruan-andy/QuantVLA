@@ -8,7 +8,7 @@ shift || true
 EXTRA_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONDA_SH="${CONDA_SH:-/root/Users/miniconda3/etc/profile.d/conda.sh}"
-LIBERO_PLUS_ROOT="${LIBERO_PLUS_ROOT:-/lumos-vePFS/suda/ruan/LIBERO-plus}"
+LIBERO_PLUS_ROOT="${LIBERO_PLUS_ROOT:-/lumos-vePFS/suzhou/Users/ruan/LIBERO-plus}"
 LIBERO_PLUS_CONFIG_PATH="${LIBERO_PLUS_CONFIG_PATH:-$REPO_ROOT/configs/libero_plus}"
 PORT="${GR00T_PORT:-5556}"
 MODEL_VARIANT="${EVAL_MODEL_VARIANT:-groot-fp16}"
@@ -33,7 +33,7 @@ case "$TASK" in
     *) echo "Unsupported LIBERO-Plus suite: $TASK" >&2; exit 1 ;;
 esac
 case "$MODEL_VARIANT" in
-    groot-fp16|groot-quantvla-w4a8|groot-opqd-v2-w4a8|groot-gap-opqd-w4a8) ;;
+    groot-fp16|groot-quantvla-w4a8|groot-pivot_q-v2-w4a8|groot-pivot-q-w4a8) ;;
     *) echo "Unsupported model variant: $MODEL_VARIANT" >&2; exit 1 ;;
 esac
 if [[ "$MODEL_ARG_PRESENT" == 0 ]]; then
@@ -64,6 +64,8 @@ export PYTHONPATH="$LIBERO_PLUS_ROOT:$REPO_ROOT:${PYTHONPATH:-}"
 export LIBERO_CONFIG_PATH="$LIBERO_PLUS_CONFIG_PATH"
 export LIBERO_EVAL_LOG_DIR="$OUTPUT_DIR"
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 mkdir -p "$OUTPUT_DIR"
 
 echo "=========================================="

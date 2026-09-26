@@ -1,6 +1,6 @@
 # FP16 与 QuantVLA：从零开始 Eval
 
-`fp16` 与 `quantvla` 都不训练。正式协议为 LIBERO-Plus Shared-560 first-20：每个 suite/category 按 task index 取前 20 条，共 140/suite、560/method；它与 OPQD train 共用 task IDs。三种方法固定相同任务、initial state 0 和 eval seed 2026。
+`fp16` 与 `quantvla` 都不训练。正式协议为 LIBERO-Plus Shared-560 first-20：每个 suite/category 按 task index 取前 20 条，共 140/suite、560/method；它与 PIVOT-Q train 共用 task IDs。三种方法固定相同任务、initial state 0 和 eval seed 2026。
 
 ## 1. 环境检查
 
@@ -112,7 +112,7 @@ done
 ./collect_eval.sh --require-complete
 ```
 
-monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与七分类；表格底部 `Avg` 区块按分类跨四个 suite 累计 successes/evaluated，所有成功率保留一位小数。seed 0 报告默认写到 `output/reports/libero-plus/shared560-first20/opqd-seed-000/`。
+monitor 一屏显示方法、总进度、成功率、ETA、四 suite 与七分类；表格底部 `Avg` 区块按分类跨四个 suite 累计 successes/evaluated，所有成功率保留一位小数。seed 0 报告默认写到 `output/reports/libero-plus/shared560-first20/pivot_q-seed-000/`。
 
 ```bash
 tail -n 80 output/eval/libero-plus/shared560-first20/fp16/libero_spatial/logs/server.log

@@ -1,0 +1,102 @@
+{
+  "model_variant": "omega-opdq",
+  "suite": "libero_spatial",
+  "selection": {
+    "task_suite_name": "libero_spatial",
+    "port": 6500,
+    "headless": true,
+    "num_steps_wait": 10,
+    "num_trials_per_task": 1,
+    "task_ids": null,
+    "category": null,
+    "difficulty": null,
+    "max_tasks": null,
+    "sample_seed": 0,
+    "save_video": false,
+    "resume": true,
+    "model_variant": "omega-opdq",
+    "sample_manifest": "/lumos-vePFS/suda/ruan/OPDQ/manifests/libero_plus_first20.json",
+    "policy_seed": 2026
+  },
+  "selected_tasks": 140,
+  "completed_episodes": 140,
+  "successes": 109,
+  "success_rate": 0.7785714285714286,
+  "errors": 0,
+  "by_category": {
+    "Background Textures": {
+      "episodes": 20,
+      "successes": 20,
+      "success_rate": 1.0,
+      "errors": 0
+    },
+    "Camera Viewpoints": {
+      "episodes": 20,
+      "successes": 11,
+      "success_rate": 0.55,
+      "errors": 0
+    },
+    "Language Instructions": {
+      "episodes": 20,
+      "successes": 20,
+      "success_rate": 1.0,
+      "errors": 0
+    },
+    "Light Conditions": {
+      "episodes": 20,
+      "successes": 18,
+      "success_rate": 0.9,
+      "errors": 0
+    },
+    "Objects Layout": {
+      "episodes": 20,
+      "successes": 19,
+      "success_rate": 0.95,
+      "errors": 0
+    },
+    "Robot Initial States": {
+      "episodes": 20,
+      "successes": 7,
+      "success_rate": 0.35,
+      "errors": 0
+    },
+    "Sensor Noise": {
+      "episodes": 20,
+      "successes": 14,
+      "success_rate": 0.7,
+      "errors": 0
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "episodes": 34,
+      "successes": 29,
+      "success_rate": 0.8529411764705882,
+      "errors": 0
+    },
+    "2": {
+      "episodes": 39,
+      "successes": 31,
+      "success_rate": 0.7948717948717948,
+      "errors": 0
+    },
+    "3": {
+      "episodes": 29,
+      "successes": 22,
+      "success_rate": 0.7586206896551724,
+      "errors": 0
+    },
+    "4": {
+      "episodes": 26,
+      "successes": 19,
+      "success_rate": 0.7307692307692307,
+      "errors": 0
+    },
+    "5": {
+      "episodes": 12,
+      "successes": 8,
+      "success_rate": 0.6666666666666666,
+      "errors": 0
+    }
+  }
+}

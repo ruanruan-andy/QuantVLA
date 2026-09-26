@@ -1,4 +1,4 @@
-"""Trusted-localhost environment service for GAP-OPQD OOD calibration.
+"""Trusted-localhost environment service for PIVOT-Q OOD calibration.
 
 This process runs with the LIBERO-Plus package in ``libero_test``.  The model
 trainer remains in ``groot_test`` and communicates through a localhost RPC, so

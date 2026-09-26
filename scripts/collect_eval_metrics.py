@@ -152,16 +152,16 @@ def _comparison_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
         return []
     fp16 = snapshot["models"][PRIMARY_MODELS[0]]
     quant = snapshot["models"][PRIMARY_MODELS[1]]
-    opqd = snapshot["models"][PRIMARY_MODELS[2]]
+    pivot_q = snapshot["models"][PRIMARY_MODELS[2]]
     rows: list[dict[str, Any]] = []
     for benchmark in snapshot["selected_benchmarks"]:
         fp_rows = {row["suite"]: row for row in fp16["benchmarks"][benchmark]}
         quant_rows = {row["suite"]: row for row in quant["benchmarks"][benchmark]}
-        opqd_rows = {row["suite"]: row for row in opqd["benchmarks"][benchmark]}
+        pivot_q_rows = {row["suite"]: row for row in pivot_q["benchmarks"][benchmark]}
         for suite in fp_rows:
             base = fp_rows[suite]
             quant_row = quant_rows[suite]
-            opqd_row = opqd_rows[suite]
+            pivot_q_row = pivot_q_rows[suite]
             rows.append(
                 {
                     "dimension": "suite",
@@ -173,13 +173,13 @@ def _comparison_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                     "quantvla_completed": quant_row["completed"],
                     "quantvla_total": quant_row["total"],
                     "quantvla_success_rate": quant_row["success_rate"],
-                    "opqd_completed": opqd_row["completed"],
-                    "opqd_total": opqd_row["total"],
-                    "opqd_success_rate": opqd_row["success_rate"],
-                    "opqd_vs_fp16_delta_points": _rate_delta(opqd_row, base),
-                    "opqd_vs_quantvla_delta_points": _rate_delta(opqd_row, quant_row),
+                    "pivot_q_completed": pivot_q_row["completed"],
+                    "pivot_q_total": pivot_q_row["total"],
+                    "pivot_q_success_rate": pivot_q_row["success_rate"],
+                    "pivot_q_vs_fp16_delta_points": _rate_delta(pivot_q_row, base),
+                    "pivot_q_vs_quantvla_delta_points": _rate_delta(pivot_q_row, quant_row),
                     "all_complete": all(
-                        row["completed"] == row["total"] for row in (base, quant_row, opqd_row)
+                        row["completed"] == row["total"] for row in (base, quant_row, pivot_q_row)
                     ),
                 }
             )
@@ -191,12 +191,12 @@ def _comparison_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     quant_categories = {
         row["category_label"]: row for row in quant["libero_plus_groups"]["categories"]
     }
-    opqd_categories = {
-        row["category_label"]: row for row in opqd["libero_plus_groups"]["categories"]
+    pivot_q_categories = {
+        row["category_label"]: row for row in pivot_q["libero_plus_groups"]["categories"]
     }
     for name, base in fp_categories.items():
         quant_row = quant_categories[name]
-        opqd_row = opqd_categories[name]
+        pivot_q_row = pivot_q_categories[name]
         rows.append(
             {
                 "dimension": "category",
@@ -208,13 +208,13 @@ def _comparison_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                 "quantvla_completed": quant_row["completed"],
                 "quantvla_total": quant_row["total"],
                 "quantvla_success_rate": quant_row["success_rate"],
-                "opqd_completed": opqd_row["completed"],
-                "opqd_total": opqd_row["total"],
-                "opqd_success_rate": opqd_row["success_rate"],
-                "opqd_vs_fp16_delta_points": _rate_delta(opqd_row, base),
-                "opqd_vs_quantvla_delta_points": _rate_delta(opqd_row, quant_row),
+                "pivot_q_completed": pivot_q_row["completed"],
+                "pivot_q_total": pivot_q_row["total"],
+                "pivot_q_success_rate": pivot_q_row["success_rate"],
+                "pivot_q_vs_fp16_delta_points": _rate_delta(pivot_q_row, base),
+                "pivot_q_vs_quantvla_delta_points": _rate_delta(pivot_q_row, quant_row),
                 "all_complete": all(
-                    row["completed"] == row["total"] for row in (base, quant_row, opqd_row)
+                    row["completed"] == row["total"] for row in (base, quant_row, pivot_q_row)
                 ),
             }
         )
@@ -256,13 +256,13 @@ def _matched_task_comparison_rows(snapshot: dict[str, Any]) -> list[dict[str, An
             "fp16_success_rate": rates[PRIMARY_MODELS[0]],
             "quantvla_successes": successes[PRIMARY_MODELS[1]],
             "quantvla_success_rate": rates[PRIMARY_MODELS[1]],
-            "opqd_successes": successes[PRIMARY_MODELS[2]],
-            "opqd_success_rate": rates[PRIMARY_MODELS[2]],
-            "opqd_vs_fp16_delta_points": (
+            "pivot_q_successes": successes[PRIMARY_MODELS[2]],
+            "pivot_q_success_rate": rates[PRIMARY_MODELS[2]],
+            "pivot_q_vs_fp16_delta_points": (
                 None if rates[PRIMARY_MODELS[2]] is None or rates[PRIMARY_MODELS[0]] is None
                 else (rates[PRIMARY_MODELS[2]] - rates[PRIMARY_MODELS[0]]) * 100
             ),
-            "opqd_vs_quantvla_delta_points": (
+            "pivot_q_vs_quantvla_delta_points": (
                 None if rates[PRIMARY_MODELS[2]] is None or rates[PRIMARY_MODELS[1]] is None
                 else (rates[PRIMARY_MODELS[2]] - rates[PRIMARY_MODELS[1]]) * 100
             ),
@@ -359,20 +359,20 @@ def _markdown_comparison(rows: list[dict[str, Any]]) -> str:
         "",
         "`*` means that model/group is incomplete; deltas involving partial groups are descriptive, not final.",
         "",
-        "| Dimension | Name | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-FP16 | OPQD-Quant | Complete |",
+        "| Dimension | Name | FP16 | QuantVLA | QuantVLA-PIVOT-Q | PIVOT-Q-FP16 | PIVOT-Q-Quant | Complete |",
         "|---|---|---:|---:|---:|---:|---:|:---:|",
     ]
     for row in rows:
         fp_marker = "" if row["fp16_completed"] == row["fp16_total"] else "*"
         quant_marker = "" if row["quantvla_completed"] == row["quantvla_total"] else "*"
-        opqd_marker = "" if row["opqd_completed"] == row["opqd_total"] else "*"
+        pivot_q_marker = "" if row["pivot_q_completed"] == row["pivot_q_total"] else "*"
         fp16 = f'{_rate_text(row["fp16_success_rate"])}{fp_marker} ({row["fp16_completed"]}/{row["fp16_total"]})'
         quant = f'{_rate_text(row["quantvla_success_rate"])}{quant_marker} ({row["quantvla_completed"]}/{row["quantvla_total"]})'
-        opqd = f'{_rate_text(row["opqd_success_rate"])}{opqd_marker} ({row["opqd_completed"]}/{row["opqd_total"]})'
-        delta_fp = "N/A" if row["opqd_vs_fp16_delta_points"] is None else f'{row["opqd_vs_fp16_delta_points"]:+.1f} pp'
-        delta_quant = "N/A" if row["opqd_vs_quantvla_delta_points"] is None else f'{row["opqd_vs_quantvla_delta_points"]:+.1f} pp'
+        pivot_q = f'{_rate_text(row["pivot_q_success_rate"])}{pivot_q_marker} ({row["pivot_q_completed"]}/{row["pivot_q_total"]})'
+        delta_fp = "N/A" if row["pivot_q_vs_fp16_delta_points"] is None else f'{row["pivot_q_vs_fp16_delta_points"]:+.1f} pp'
+        delta_quant = "N/A" if row["pivot_q_vs_quantvla_delta_points"] is None else f'{row["pivot_q_vs_quantvla_delta_points"]:+.1f} pp'
         lines.append(
-            f'| {row["dimension"]} | {row["name"]} | {fp16} | {quant} | {opqd} | '
+            f'| {row["dimension"]} | {row["name"]} | {fp16} | {quant} | {pivot_q} | '
             f'{delta_fp} | {delta_quant} | {"yes" if row["all_complete"] else "no"} |'
         )
     return "\n".join(lines)
@@ -384,18 +384,18 @@ def _markdown_matched_comparison(rows: list[dict[str, Any]]) -> str:
         "",
         "Only task IDs with valid episode records in all three models are included.",
         "",
-        "| Dimension | Name | Matched | FP16 | QuantVLA | QuantVLA-OPQD | OPQD-Quant |",
+        "| Dimension | Name | Matched | FP16 | QuantVLA | QuantVLA-PIVOT-Q | PIVOT-Q-Quant |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
-        delta = row["opqd_vs_quantvla_delta_points"]
+        delta = row["pivot_q_vs_quantvla_delta_points"]
         delta_text = "N/A" if delta is None else f"{delta:+.1f} pp"
         lines.append(
             f'| {row["dimension"]} | {row["name"]} | '
             f'{row["matched_tasks"]}/{row["expected_tasks"]} | '
             f'{_rate_text(row["fp16_success_rate"])} | '
             f'{_rate_text(row["quantvla_success_rate"])} | '
-            f'{_rate_text(row["opqd_success_rate"])} | {delta_text} |'
+            f'{_rate_text(row["pivot_q_success_rate"])} | {delta_text} |'
         )
     return "\n".join(lines)
 
@@ -494,7 +494,7 @@ def parse_args() -> argparse.Namespace:
         help="Normalized output root (default: <repo>/output)",
     )
     parser.add_argument("--run-name", default="default", help="Run name below each suite")
-    parser.add_argument("--opqd-train-seed", type=int, default=0)
+    parser.add_argument("--pivot_q-train-seed", type=int, default=0)
     parser.add_argument(
         "--no-legacy-fallback",
         action="store_true",
@@ -519,7 +519,7 @@ def main() -> None:
         / "reports"
         / "libero-plus"
         / "shared560-first20"
-        / f"opqd-seed-{args.opqd_train_seed:03d}"
+        / f"pivot_q-seed-{args.pivot_q_train_seed:03d}"
     )
     if args.run_name not in ("", "default"):
         default_report_dir /= args.run_name
@@ -533,7 +533,7 @@ def main() -> None:
         selected_benchmarks=args.benchmarks,
         output_root=output_root,
         run_name=args.run_name,
-        opqd_train_seed=args.opqd_train_seed,
+        pivot_q_train_seed=args.pivot_q_train_seed,
         legacy_fallback=not args.no_legacy_fallback,
     )
     partial = any(
@@ -625,8 +625,8 @@ def main() -> None:
         "dimension", "benchmark", "name",
         "fp16_completed", "fp16_total", "fp16_success_rate",
         "quantvla_completed", "quantvla_total", "quantvla_success_rate",
-        "opqd_completed", "opqd_total", "opqd_success_rate",
-        "opqd_vs_fp16_delta_points", "opqd_vs_quantvla_delta_points", "all_complete",
+        "pivot_q_completed", "pivot_q_total", "pivot_q_success_rate",
+        "pivot_q_vs_fp16_delta_points", "pivot_q_vs_quantvla_delta_points", "all_complete",
     ]
     _write_csv(output_dir / "model_comparisons.csv", comparison_fields, comparisons)
     _write_csv(
@@ -635,15 +635,15 @@ def main() -> None:
             "dimension", "name", "matched_tasks", "expected_tasks",
             "fp16_successes", "fp16_success_rate",
             "quantvla_successes", "quantvla_success_rate",
-            "opqd_successes", "opqd_success_rate",
-            "opqd_vs_fp16_delta_points", "opqd_vs_quantvla_delta_points",
+            "pivot_q_successes", "pivot_q_success_rate",
+            "pivot_q_vs_fp16_delta_points", "pivot_q_vs_quantvla_delta_points",
         ],
         matched_comparisons,
     )
 
     report = "\n\n".join(
         [
-            "# GR00T FP16 vs QuantVLA vs QuantVLA-OPQD Evaluation Report",
+            "# GR00T FP16 vs QuantVLA vs QuantVLA-PIVOT-Q Evaluation Report",
             _technical_summary(snapshot, partial, inconsistent),
             _scope_and_definitions(snapshot),
             "## Results by model",

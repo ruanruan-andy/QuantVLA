@@ -10,7 +10,7 @@ shift || true
 usage() {
     cat <<'EOF'
 Internal evaluator used by eval_fp16.sh, eval_quantvla.sh, and
-eval_quantvla_opqd.sh.
+eval_quantvla_pivot_q.sh.
 
 Required/primary options:
   --benchmark NAME       libero or libero-plus (default: libero-plus)
@@ -20,9 +20,9 @@ Required/primary options:
   --output-root PATH     root for normalized outputs (default: ./output)
   --output-dir PATH      exact eval directory; overrides output-root/run-name
   --run-name NAME        optional final output component (default: none)
-  --checkpoint PATH      base model/HF id; for OPQD, checkpoint or adapter dir
+  --checkpoint PATH      base model/HF id; for PIVOT-Q, checkpoint or adapter dir
   --eval-seed N          fixed policy sampling seed (default: 2026)
-  --train-seed N         OPQD train seed used in output naming
+  --train-seed N         PIVOT-Q train seed used in output naming
 
 Evaluation options:
   --manifest PATH        LIBERO-Plus selection manifest
@@ -44,8 +44,8 @@ case "$METHOD" in
     quantvla)
         MODEL_VARIANT="groot-quantvla-w4a8"
         ;;
-    quantvla-opqd)
-        MODEL_VARIANT="groot-opqd-v2-w4a8"
+    quantvla-pivot_q)
+        MODEL_VARIANT="groot-pivot_q-v2-w4a8"
         ;;
     *) echo "Internal error: unknown method '$METHOD'" >&2; exit 2 ;;
 esac
@@ -109,7 +109,7 @@ OUTPUT_ROOT="$(quantvla_abs_path "$OUTPUT_ROOT")"
 if [[ -z "$OUTPUT_DIR" ]]; then
     if [[ "$BENCHMARK" == "libero-plus" ]]; then
         METHOD_OUTPUT="$METHOD"
-        [[ "$METHOD" == "quantvla-opqd" ]] && METHOD_OUTPUT="opqd-v2-s16/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
+        [[ "$METHOD" == "quantvla-pivot_q" ]] && METHOD_OUTPUT="pivot_q-v2-s16/seed-$(printf '%03d' "${TRAIN_SEED:-0}")"
         OUTPUT_DIR="$OUTPUT_ROOT/eval/libero-plus/shared560-first20/$METHOD_OUTPUT/$SUITE"
     else
         OUTPUT_DIR="$OUTPUT_ROOT/eval/$BENCHMARK/$METHOD/$SUITE"
@@ -126,13 +126,13 @@ if [[ "$BENCHMARK" == "libero-plus" && ! -f "$MANIFEST" ]]; then
 fi
 
 ADAPTER_PATH=""
-if [[ "$METHOD" == "quantvla-opqd" ]]; then
+if [[ "$METHOD" == "quantvla-pivot_q" ]]; then
     if [[ -z "$CHECKPOINT" ]]; then
-        echo "quantvla-opqd evaluation requires --checkpoint/--ckpt" >&2
+        echo "quantvla-pivot_q evaluation requires --checkpoint/--ckpt" >&2
         exit 2
     fi
     if [[ -z "$TRAIN_SEED" ]]; then
-        echo "quantvla-opqd evaluation requires --train-seed for reproducible naming" >&2
+        echo "quantvla-pivot_q evaluation requires --train-seed for reproducible naming" >&2
         exit 2
     fi
     CHECKPOINT="$(quantvla_abs_path "$CHECKPOINT")"
@@ -141,7 +141,7 @@ if [[ "$METHOD" == "quantvla-opqd" ]]; then
     elif [[ -f "$CHECKPOINT/adapter/adapter_model.safetensors" ]]; then
         ADAPTER_PATH="$CHECKPOINT/adapter"
     else
-        echo "OPQD adapter_model.safetensors not found below: $CHECKPOINT" >&2
+        echo "PIVOT-Q adapter_model.safetensors not found below: $CHECKPOINT" >&2
         exit 2
     fi
 fi
@@ -158,14 +158,14 @@ SERVER_ENV=(
     "GR00T_PORT=$PORT"
     "GR00T_MODEL_VARIANT=$MODEL_VARIANT"
 )
-if [[ -n "$CHECKPOINT" && "$METHOD" != "quantvla-opqd" ]]; then
+if [[ -n "$CHECKPOINT" && "$METHOD" != "quantvla-pivot_q" ]]; then
     SERVER_ENV+=("GR00T_MODEL_PATH=$CHECKPOINT")
 fi
 
 case "$METHOD" in
     fp16) SERVER_CMD=("$REPO_ROOT/run_inference_server.sh" "$SUITE") ;;
     quantvla) SERVER_CMD=("$REPO_ROOT/run_quantvla.sh" "$SUITE") ;;
-    quantvla-opqd) SERVER_CMD=("$REPO_ROOT/run_gap_opqd_inference.sh" "$SUITE" "$ADAPTER_PATH") ;;
+    quantvla-pivot_q) SERVER_CMD=("$REPO_ROOT/run_pivot_q_inference.sh" "$SUITE" "$ADAPTER_PATH") ;;
 esac
 
 EVAL_ENV=(

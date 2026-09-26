@@ -1,6 +1,6 @@
 """Trusted-localhost environment service for standard clean LIBERO.
 
-This process runs in ``libero_test`` while GAP-OPQD training runs in
+This process runs in ``libero_test`` while PIVOT-Q training runs in
 ``groot_test``.  Keeping the environments separate avoids mixing the target
 LIBERO-Plus package into IID training and avoids dependency conflicts.
 """

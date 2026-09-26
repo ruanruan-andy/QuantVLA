@@ -187,7 +187,7 @@ class GR00T_N1_5(PreTrainedModel):
         inputs: dict,
         initial_noise: torch.Tensor | None = None,
     ) -> BatchFeature:
-        """Differentiable flow sampling used by GAP-OPQD.
+        """Differentiable flow sampling used by PIVOT-Q.
 
         Normal inference should continue to call :meth:`get_action`.  This method is
         intentionally separate so training code must opt in to retaining the action

@@ -23,6 +23,12 @@ if [[ -n "$HF_PROXY" ]]; then
     export HTTPS_PROXY="${HTTPS_PROXY:-$HF_PROXY}"
 fi
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+export MUJOCO_GL="${MUJOCO_GL:-egl}"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+export MUJOCO_GL="${MUJOCO_GL:-egl}"
 
 # Set model path and data config based on task. GR00T_MODEL_PATH may point to a
 # local checkpoint or a Hugging Face model id for reproducible comparisons.

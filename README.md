@@ -33,22 +33,22 @@ Jingxuan Zhang<sup>1†</sup>&nbsp;&nbsp;Yunta Hsieh<sup>3†</sup>&nbsp;&nbsp;Z
 
 ## GR00T / LIBERO research workflow
 
-This fork adds LIBERO-Plus evaluation and QuantVLA-OPQD adaptation. The supported
+This fork adds LIBERO-Plus evaluation and QuantVLA-PIVOT-Q adaptation. The supported
 comparison is intentionally limited to `fp16`, `quantvla`, and
-`quantvla-opqd`; user-facing launchers use a normalized output layout and
+`quantvla-pivot_q`; user-facing launchers use a normalized output layout and
 protect existing episode files from accidental overwrite.
 
 The formal protocol uses one Shared-560 manifest: the first 20 tasks in every
-suite/category pair are used by OPQD adaptation and by all three evaluations.
+suite/category pair are used by PIVOT-Q adaptation and by all three evaluations.
 This is a same-task, transductive adaptation study rather than held-out-task
-generalization. OPQD uses full student-executed episodes and selects 16
+generalization. PIVOT-Q uses full student-executed episodes and selects 16
 phase-balanced states per episode.
 
 | Document | Content |
 |---|---|
 | [FP16 and QuantVLA eval](docs/FP16_QUANTVLA_EVAL_CN.md) | Zero-to-one LIBERO/LIBERO-Plus evaluation |
-| [QuantVLA-OPQD train/eval](docs/QUANTVLA_OPQD_TRAIN_EVAL_CN.md) | Training, resume, checkpoint evaluation |
-| [Method](docs/METHOD_CN.md) | QuantVLA implementation and OPQD objective |
+| [QuantVLA-PIVOT-Q train/eval](docs/QUANTVLA_PIVOT_Q_TRAIN_EVAL_CN.md) | Training, resume, checkpoint evaluation |
+| [Method](docs/METHOD_CN.md) | QuantVLA implementation and PIVOT-Q objective |
 | [Experiments](docs/EXPERIMENTS_CN.md) | Main matrix, ablations, and result templates |
 
 Primary commands:
@@ -56,8 +56,8 @@ Primary commands:
 ```bash
 ./eval_fp16.sh --help
 ./eval_quantvla.sh --help
-./train_quantvla_opqd.sh --help
-./eval_quantvla_opqd.sh --help
+./train_quantvla_pivot_q.sh --help
+./eval_quantvla_pivot_q.sh --help
 ./monitor_eval.sh --help
 ./collect_eval.sh --help
 ```

@@ -1,8 +1,8 @@
-# QuantVLA-OPQD-v2 方法
+# QuantVLA-PIVOT-Q-v2 方法
 
 ## 1. 方法概览
 
-QuantVLA-OPQD-v2 是一个面向量化视觉-语言-动作模型的**在线稀疏蒸馏**方法。它以冻结的全精度策略作为教师，以 W4A8 QuantVLA 作为学生；学生先在目标环境中自主执行，再仅在少量、具有代表性的访问状态上接受教师监督。训练只更新学生 action head 中注意力投影的 LoRA 参数，不更新视觉/语言 backbone、基础 action head 权重、量化参数或教师参数。
+QuantVLA-PIVOT-Q-v2 是一个面向量化视觉-语言-动作模型的**在线稀疏蒸馏**方法。它以冻结的全精度策略作为教师，以 W4A8 QuantVLA 作为学生；学生先在目标环境中自主执行，再仅在少量、具有代表性的访问状态上接受教师监督。训练只更新学生 action head 中注意力投影的 LoRA 参数，不更新视觉/语言 backbone、基础 action head 权重、量化参数或教师参数。
 
 方法由四个相互衔接的部分组成：
 
@@ -11,7 +11,7 @@ QuantVLA-OPQD-v2 是一个面向量化视觉-语言-动作模型的**在线稀�
 3. 在四个时间阶段内，以“高分状态 + 随机状态”的固定配额选择 $16$ 个蒸馏状态；
 4. 对这些状态进行加权动作蒸馏，并用 clean anchor 抑制目标域适配造成的遗忘。
 
-本文中的 OPQD 特指上述“on-policy 轨迹、四阶段选择、加权蒸馏与 clean anchor”组成的实现。它不是离线行为克隆：监督目标由教师在学生实际访问到的状态上在线生成。
+本文中的 PIVOT-Q 特指上述“on-policy 轨迹、四阶段选择、加权蒸馏与 clean anchor”组成的实现。它不是离线行为克隆：监督目标由教师在学生实际访问到的状态上在线生成。
 
 ## 2. 记号与模型
 
@@ -55,7 +55,7 @@ $$
 
 ### 4.2 折扣未来风险
 
-仅按 $q_t$ 选择状态会偏向单步尖峰。为强调持续性偏差，OPQD 为每一步计算一个截断的未来折扣平均：
+仅按 $q_t$ 选择状态会偏向单步尖峰。为强调持续性偏差，PIVOT-Q 为每一步计算一个截断的未来折扣平均：
 
 $$
 r_t=
@@ -92,7 +92,7 @@ $$
 
 ### 5.3 固定配额与时间间隔
 
-对每个阶段，OPQD 选择 $k_p=2$ 个按 $s_t$ 降序的 priority states，以及 $k_r=2$ 个从剩余候选中随机采样的 random states。因此每阶段恰有 $k_p+k_r=4$ 个状态，整条轨迹固定得到：
+对每个阶段，PIVOT-Q 选择 $k_p=2$ 个按 $s_t$ 降序的 priority states，以及 $k_r=2$ 个从剩余候选中随机采样的 random states。因此每阶段恰有 $k_p+k_r=4$ 个状态，整条轨迹固定得到：
 
 $$
 K=P(k_p+k_r)=4(2+2)=16
@@ -137,17 +137,17 @@ $$
 其中 $\hat{\mathbf a}_i^S(\xi_i)$ 是带梯度重新计算得到的学生第一个动作；$\mathbf a_i^T(\xi_i)$ 是在同一噪声下缓存的教师第一个动作；$d=7$。主蒸馏目标为：
 
 $$
-\mathcal L_{\mathrm{OPQD}}=
+\mathcal L_{\mathrm{PIVOT-Q}}=
 \sum_{i\in\mathcal I}\bar w_i\ell_i.
 $$
 
 目标域主损失只对 $16$ 个状态反传，而不是对整条轨迹的每一步都反传；但候选评分仍基于完整 student-on-policy 轨迹，因此同时保留了运行时效率与状态覆盖。
 
-实现时，$16$ 个主状态以各自的 $\bar w_i$ 逐个调用反向传播；这与先显式求和得到 $\mathcal L_{\mathrm{OPQD}}$ 再反传在数值上等价。clean anchor 的额外反传见下一节。
+实现时，$16$ 个主状态以各自的 $\bar w_i$ 逐个调用反向传播；这与先显式求和得到 $\mathcal L_{\mathrm{PIVOT-Q}}$ 再反传在数值上等价。clean anchor 的额外反传见下一节。
 
 ## 7. Clean anchor 与总目标
 
-仅用目标域稀疏蒸馏更新 LoRA 可能导致学生偏离原有的 clean-domain 行为。为此，OPQD 额外从 clean LIBERO 环境采集短轨迹，并将其状态缓存到容量为 $R=256$ 的 replay buffer。每次更新从 buffer 中均匀采样至多 $B=4$ 个 anchor 状态。
+仅用目标域稀疏蒸馏更新 LoRA 可能导致学生偏离原有的 clean-domain 行为。为此，PIVOT-Q 额外从 clean LIBERO 环境采集短轨迹，并将其状态缓存到容量为 $R=256$ 的 replay buffer。每次更新从 buffer 中均匀采样至多 $B=4$ 个 anchor 状态。
 
 对 anchor 集合 $\mathcal B$，使用与主蒸馏相同的教师—学生执行动作 MSE：
 
@@ -163,7 +163,7 @@ $$
 
 $$
 \mathcal L=
-\mathcal L_{\mathrm{OPQD}}
+\mathcal L_{\mathrm{PIVOT-Q}}
 +\lambda_{\mathrm{anchor}}\mathcal L_{\mathrm{anchor}}.
 $$
 
@@ -181,12 +181,12 @@ LoRA 仅插入 action head 注意力模块中的线性 $Q/K/V$ 投影，即名�
 
 ## 9. 单个 episode 的算法流程
 
-给定当前 LoRA 参数 $\phi$，一次 OPQD 更新按以下顺序进行：
+给定当前 LoRA 参数 $\phi$，一次 PIVOT-Q 更新按以下顺序进行：
 
 1. 用学生 $f_S(\theta_Q,\phi)$ 执行目标环境，记录完整轨迹 $\mathcal T$；教师只在这些已访问状态上推理。
 2. 对所有 $t=0,\ldots,T-1$ 计算 $q_t$ 与 $r_t$，并在各时间阶段得到 $s_t$。
 3. 在每阶段按固定 $2$ 个 priority 与 $2$ 个 random 配额、带 gap 约束地选出集合 $\mathcal I$。
-4. 缓存并重新物化 $\mathcal I$ 中的状态，计算加权损失 $\mathcal L_{\mathrm{OPQD}}$。
+4. 缓存并重新物化 $\mathcal I$ 中的状态，计算加权损失 $\mathcal L_{\mathrm{PIVOT-Q}}$。
 5. 采集或复用 clean replay，从 $\mathcal B$ 计算 $\mathcal L_{\mathrm{anchor}}$。
 6. 对总目标 $\mathcal L$ 反向传播，裁剪梯度并更新 LoRA 参数 $\phi$；重复 $U=5$ 次。
 

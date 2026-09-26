@@ -131,7 +131,7 @@ class EvalMetricsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             row = suite_metrics(
                 pathlib.Path(directory),
-                "groot-opqd-v2-w4a8",
+                "groot-pivot_q-v2-w4a8",
                 "libero-plus",
                 "libero_goal",
                 total=42,

@@ -87,7 +87,7 @@ class ArgsConfig:
     """The number of denoising steps to use."""
 
     adapter_path: str = None
-    """Optional PEFT adapter (for example, a GAP-OPQD action-head LoRA)."""
+    """Optional PEFT adapter (for example, a PIVOT-Q action-head LoRA)."""
 
     api_token: str = None
     """API token for authentication. If not provided, authentication is disabled."""
